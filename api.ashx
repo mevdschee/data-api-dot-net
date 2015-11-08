@@ -1,2 +1,1 @@
-﻿<%@ WebHandler Language="C#" Class="testaspx.api" %>
-
+﻿<%@ WebHandler Language="C#" Class="DataApiDotNet.Handler" %>
