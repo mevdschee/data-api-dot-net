@@ -34,19 +34,19 @@ namespace DataApiDotNet
 			string[] columns = input!=null ? input.Keys.Select(i => Regex.Replace(i.ToString(), "[^a-z0-9_]+", "")).ToArray() : null;
 
 			// build the SET part of the SQL command
-			string set = input != null ? String.Join (", ", columns.Select (i => "`" + i + "`=@_" + i).ToArray ()) : "";
+			string set = input != null ? String.Join (", ", columns.Select (i => "[" + i + "]=@_" + i).ToArray ()) : "";
 
 			// create SQL based on HTTP method
 			string sql = null;
 			switch (method) {
 			case "GET":
-				sql = string.Format ("select * from `{0}`" + (key > 0 ? " where id=@pk" : ""), table); break;
+				sql = string.Format ("select * from [{0}]" + (key > 0 ? " where [id]=@pk" : ""), table); break;
 			case "PUT":
-				sql = string.Format ("update `{0}` set {1} where id=@pk",table,set); break;
+				sql = string.Format ("update [{0}] set {1} where [id]=@pk",table,set); break;
 			case "POST":
-				sql = string.Format ("insert into `{0}` set {1}; select scope_identity()",table,set); break;
+				sql = string.Format ("insert into [{0}] set {1}; select scope_identity()",table,set); break;
 			case "DELETE":
-				sql = string.Format ("delete `{0}` where id=@pk",table); break;
+				sql = string.Format ("delete [{0}] where [id]=@pk",table); break;
 			}
 
 			// add parameters to command
@@ -59,7 +59,7 @@ namespace DataApiDotNet
 				SqlDataReader reader = command.ExecuteReader ();
 				var fields = new List<string> ();
 				for (int i = 0; i < reader.FieldCount; i++) fields.Add (reader.GetName(i));
-				if (key > 0) context.Response.Write ("[");
+				if (key == 0) context.Response.Write ("[");
 				bool first = true;
 				while (reader.Read ()) {
 					if (first) first = false;
@@ -68,7 +68,7 @@ namespace DataApiDotNet
 					foreach (var field in fields) row.Add (field, reader [field]);
 					context.Response.Write (json.Serialize ((object)row));
 				}
-				if (key > 0) context.Response.Write ("]");
+				if (key == 0) context.Response.Write ("]");
 				reader.Close ();
 			} else if (method == "POST") {
 				SqlDataReader reader = command.ExecuteReader ();
