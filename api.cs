@@ -2,8 +2,10 @@
 using System.Text;
 using System.Web;
 using System.Collections.Generic;
-using System.Collections.Specialized;
 using Newtonsoft.Json;
+using System.Data.SqlClient;
+using System.Text.RegularExpressions;
+using System.Linq;
 
 namespace DataApiDotNet
 {
@@ -18,44 +20,35 @@ namespace DataApiDotNet
 			string data = Encoding.UTF8.GetString (context.Request.BinaryRead (context.Request.TotalBytes));
 			Dictionary<string,object> input = JsonConvert.DeserializeObject<Dictionary<string,object>>(data); 
 
-			/*if (input!=null) foreach (KeyValuePair<string, object> entry in input) {
-					context.Response.Write (entry.Key+":"+entry.Value + "<br/>\n");
-			}*/
-
-			/*
-			// connect to the mysql database
-			$link = mysqli_connect('localhost', 'user', 'pass', 'dbname');
-			mysqli_set_charset($link,'utf8');
+			// connect to the sql server database
+			SqlConnection link = new SqlConnection("addr=localhost;uid=user;pwd=pass;database=dbname");
 
 			// retrieve the table and key from the path
-			$table = preg_replace('/[^a-z0-9_]+/i','',array_shift($request));
-			$key = array_shift($request)+0;
+			string table = Regex.Replace(request[0], "[^a-z0-9_]+", "");
+			int key = request.Length>1 ? int.Parse(request[1]) : 0;
 
 			// escape the columns and values from the input object
-			$columns = preg_replace('/[^a-z0-9_]+/i','',array_keys($input));
-			$values = array_map(function ($value) use ($link) {
-				if ($value===null) return null;
-				return mysqli_real_escape_string($link,(string)$value);
-			},array_values($input));
+			string[] columns = input!=null ? input.Keys.Select(i => Regex.Replace(i.ToString(), "[^a-z0-9_]+", "")).ToArray() : null;
+			string[] values = input!=null ? input.Values.Select(i => i.ToString()).ToArray() : null;
 
 			// build the SET part of the SQL command
-			$set = '';
-			for ($i=0;$i<count($columns);$i++) {
-				$set.=($i>0?',':'').'`'.$columns[$i].'`=';
-				$set.=($values[$i]===null?'NULL':'"'.$values[$i].'"');
-			}
+			string set = input != null ? String.Join (",", columns.Select (i => "`" + i + "`=?").ToArray ()) : "";
 
 			// create SQL based on HTTP method
-			switch ($method) {
-			case 'GET':
-				$sql = "select * from `$table`".($key?" WHERE id=$key":''); break;
-			case 'PUT':
-				$sql = "update `$table` set $set where id=$key"; break;
-			case 'POST':
-				$sql = "insert into `$table` set $set"; break;
-			case 'DELETE':
-				$sql = "delete `$table` where id=$key"; break;
+			string sql = null;
+			switch (method) {
+			case "GET":
+				sql = string.Format ("select * from `{0}`" + (key > 0 ? " WHERE id=?" : ""), table); break;
+			case "PUT":
+				sql = string.Format ("update `{0}` set {1} where id=?",table,set); break;
+			case "POST":
+				sql = string.Format ("insert into `{0}` set {1}",table,set); break;
+			case "DELETE":
+				sql = string.Format ("delete `{0}` where id=?",table); break;
 			}
+
+			/*
+			context.Response.Write (set);
 
 			// excecute SQL statement
 			$result = mysqli_query($link,$sql);
