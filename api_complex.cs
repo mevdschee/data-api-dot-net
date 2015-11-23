@@ -29,18 +29,30 @@ namespace DataApiDotNet_Complex
 		public string Db;
 		public string Method;
 		public string Request;
-		public string Get;
-		public string Post;
+		public NameValueCollection Get;
+		public System.IO.Stream Post;
 	}
 
-	class Base
+	class MySQL_CRUD_API: REST_CRUD_API
+	{
+		public MySQL_CRUD_API(HttpContext context, Config config): base(context,config)
+		{
+		}
+
+		override protected string GetDefaultCharset()
+		{
+			return "utf8";
+		}
+	}
+
+	abstract class REST_CRUD_API
 	{
 		protected class Settings
 		{
 			public string Method;
 			public string[] Request;
 			public NameValueCollection Get;
-			public string Post;
+			public System.IO.Stream Post;
 			public string Database;
 			public TableAuthorizerDelegate TableAuthorizer;
 			public ColumnAuthorizerDelegate ColumnAuthorizer;
@@ -51,11 +63,6 @@ namespace DataApiDotNet_Complex
 
 		protected class Parameters
 		{
-			public Parameters(Settings settings)
-			{
-
-			}
-
 			public string Action;
 			public string Database;
 			public string Table;
@@ -72,6 +79,52 @@ namespace DataApiDotNet_Complex
 			public string Collect;
 			public string Select;
 
+		}
+
+		protected Parameters GetParameters(Settings settings)
+		{
+			Parameters parameters = new Parameters {};
+
+			/*
+			$table     = $this->parseRequestParameter($request, 'a-zA-Z0-9\-_*,', false);
+			$key       = $this->parseRequestParameter($request, 'a-zA-Z0-9\-,', false); // auto-increment or uuid
+			$action    = $this->mapMethodToAction($method,$key);
+			$callback  = $this->parseGetParameter($get, 'callback', 'a-zA-Z0-9\-_', false);
+			$page      = $this->parseGetParameter($get, 'page', '0-9,', false);
+			$filters   = $this->parseGetParameterArray($get, 'filter', false, false);
+			$satisfy   = $this->parseGetParameter($get, 'satisfy', 'a-z', 'all');
+			$columns   = $this->parseGetParameter($get, 'columns', 'a-zA-Z0-9\-_,', false);
+			$order     = $this->parseGetParameter($get, 'order', 'a-zA-Z0-9\-_*,', false);
+			$transform = $this->parseGetParameter($get, 'transform', '1', false);
+
+			$table    = $this->processTableParameter($database,$table,$db);
+			$key      = $this->processKeyParameter($key,$table,$database,$db);
+			foreach ($filters as &$filter) $filter = $this->processFilterParameter($filter,$db);
+			if ($columns) $columns = explode(',',$columns);
+			$page     = $this->processPageParameter($page);
+			$order    = $this->processOrderParameter($order);
+
+			if (empty($table)) $this->exitWith404('entity');
+
+			// reflection
+			list($collect,$select) = $this->findRelations($table,$database,$db);
+			$columns = $this->findFields($table,$collect,$select,$columns,$database,$db);
+
+			// permissions
+			if ($table_authorizer) $this->applyTableAuthorizer($table_authorizer,$action,$database,$table);
+			if ($column_authorizer) $this->applyColumnAuthorizer($column_authorizer,$action,$database,$columns);
+
+			// input
+			$context = $this->retrieveInput($post);
+			if (!empty($context)) $input = $this->limitInputFields($context,$columns[$table[0]]);
+
+			if ($input_sanitizer) $this->applyInputSanitizer($input_sanitizer,$action,$database,$table[0],$input,$columns[$table[0]]);
+			if ($input_validator) $this->applyInputValidator($input_validator,$action,$database,$table[0],$input,$columns[$table[0]],$context);
+
+			if (!empty($input)) $input = $this->convertBinary($input,$columns[$table[0]]);
+			 */
+
+			return parameters;
 		}
 
 		protected HttpContext _context;
@@ -103,49 +156,58 @@ namespace DataApiDotNet_Complex
 
 		}
 
-		public Base(HttpContext context, Config config)
+		public REST_CRUD_API(HttpContext context, Config config)
 		{
 			_context = context;
 
-			//string hostname = config.Hostname;
-			//string username = config.Username;
+			// defaults
+			if (config.Method == null) {
+				config.Method = context.Request.HttpMethod;
+			}
+			if (config.Request == null) {
+				config.Request = context.Request.PathInfo;
+			}
+			if (config.Get == null) {
+				config.Get = context.Request.QueryString;
+			}
+			if (config.Post == null) {
+				config.Post = context.Request.InputStream;
+			}
+			if (config.Charset == null) {
+				config.Charset = this.GetDefaultCharset();
+			}
 
-			context.Response.Write (config.Username);
+			// connect
+			_settings.Request = config.Request.Trim ('/').Split ('/');
 
-			/*isset($username)?$username:'root';
-			$password = isset($password)?$password:null;
-			$database = isset($database)?$database:false;
-			$port = isset($port)?$port:null;
-			$socket = isset($socket)?$socket:null;
-			$charset = isset($charset)?$charset:'utf8';
-
-			$callbacks['table_authorizer'] = isset($table_authorizer)?$table_authorizer:false;
-			$callbacks['column_authorizer'] = isset($column_authorizer)?$column_authorizer:false;
-			$callbacks['input_sanitizer'] = isset($input_sanitizer)?$input_sanitizer:false;
-			$callbacks['input_validator'] = isset($input_validator)?$input_validator:false;
-
-			$db = isset($db)?$db:null;
-			$method = isset($method)?$method:$_SERVER['REQUEST_METHOD'];
-			$request = isset($request)?$request:(isset($_SERVER['PATH_INFO'])?$_SERVER['PATH_INFO']:'');
-			$get = isset($get)?$get:$_GET;
-			$post = isset($post)?$post:'php://input';
-
-			$request = explode('/', trim($request,'/'));
-
+			/*
 			if (!$database) {
 				$database  = $this->parseRequestParameter($request, 'a-zA-Z0-9\-_,', false);
 			}
 			if (!$db) {
 				$db = $this->connectDatabase($hostname,$username,$password,$database,$port,$socket,$charset);
-			}*/
+			}
+			*/
 
-			//_settings = compact('method', 'request', 'get', 'post', 'database', 'callbacks', 'db');
+			_settings = new Settings{
+				Method = config.Method,
+				Request = _settings.Request,
+				Get = config.Get,
+				Post = config.Post,
+				Database = config.Database,
+				TableAuthorizer = config.TableAuthorizer,
+				ColumnAuthorizer = config.ColumnAuthorizer,
+				InputSanitizer = config.InputSanitizer,
+				InputValidator = config.InputValidator,
+				Db = config.Db
+			};
+
 		}
 
 		public void ExecuteCommand()
 		{
 			_context.Response.AddHeader ("Access-Control-Allow-Origin", "*");
-			Parameters parameters = new Parameters(_settings);
+			Parameters parameters = this.GetParameters(_settings);
 			switch(parameters.Action) {
 				case "list":   ListCommand(parameters);   break;
 				case "read":   ReadCommand(parameters);   break;
@@ -155,42 +217,22 @@ namespace DataApiDotNet_Complex
 			}
 		}
 
+		// abstract 
+
+		abstract protected string GetDefaultCharset ();
+
 	}
 
 	public class Handler: System.Web.IHttpHandler
 	{
-
 		public void ProcessRequest (HttpContext context)
 		{
-
-			// uncomment the lines below when running in stand-alone mode:
-			// $api = new MySQL_CRUD_API(array(
-			// 	'hostname'=>'localhost',
-			//	'username'=>'xxx',
-			//	'password'=>'xxx',
-			//	'database'=>'xxx',
-			// 	'charset'=>'utf8'
-			// ));
-			// $api->executeCommand();
-			// For Microsoft SQL Server use:
-			// $api = new MsSQL_CRUD_API(array(
-			// 	'hostname'=>'(local)',
-			// 	'username'=>'',
-			// 	'password'=>'',
-			// 	'database'=>'xxx',
-			// 	'charset'=>'UTF-8'
-			// ));
-			// $api->executeCommand();
-			// For PostgreSQL use:
-			// $api = new PgSQL_CRUD_API(array(
-			// 	'hostname'=>'localhost',
-			// 	'username'=>'xxx',
-			// 	'password'=>'xxx',
-			// 	'database'=>'xxx',
-			// 	'charset'=>'UTF8'
-			// ));
-			// $api->executeCommand();
-			Base api = new Base (context,new Config{ });
+			MySQL_CRUD_API api = new MySQL_CRUD_API (context,new Config{
+				Hostname = "localhost",
+				Username = "root",
+				Password = "",
+				Database = "mysql_crud_api"
+			});
 			api.ExecuteCommand ();
 		}
 
