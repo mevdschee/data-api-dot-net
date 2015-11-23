@@ -1,1 +1,1 @@
-﻿<%@ WebHandler Language="C#" Class="DataApiDotNet.Handler" %>
+﻿<%@ WebHandler Language="C#" Class="DataApiDotNet_Complex.Handler" %>

@@ -10,14 +10,6 @@ namespace DataApiDotNet_Complex
 	delegate bool InputSanitizerDelegate   (string action, string database, string table, string column, string type, object value);
 	delegate bool InputValidatorDelegate   (string action, string database, string table, string column, string type, object value, NameValueCollection context);
 
-	class Delegates
-	{
-		TableAuthorizerDelegate TableAuthorizer;
-		ColumnAuthorizerDelegate ColumnAuthorizer;
-		InputSanitizerDelegate InputSanitizer;
-		InputValidatorDelegate InputValidator;
-	}
-
 	class Config
 	{
 		public string Username;
@@ -25,7 +17,7 @@ namespace DataApiDotNet_Complex
 		public string Database;
 		// for connectivity (defaults to localhost):
 		public string Hostname;
-		public string Port;
+		public int? Port;
 		public string Socket;
 		public string Charset;
 		// callbacks with their default behavior
@@ -50,7 +42,10 @@ namespace DataApiDotNet_Complex
 			public NameValueCollection Get;
 			public string Post;
 			public string Database;
-			public Delegates Callbacks;
+			public TableAuthorizerDelegate TableAuthorizer;
+			public ColumnAuthorizerDelegate ColumnAuthorizer;
+			public InputSanitizerDelegate InputSanitizer;
+			public InputValidatorDelegate InputValidator;
 			public object Db;
 		}
 
@@ -83,7 +78,7 @@ namespace DataApiDotNet_Complex
 
 		protected Settings _settings;
 
-		protected void ListCommandTransform(Parameters parameters)
+		protected void ListCommand(Parameters parameters)
 		{
 
 		}
@@ -112,8 +107,12 @@ namespace DataApiDotNet_Complex
 		{
 			_context = context;
 
-			string hostname = config.Hostname;
-			/*$username = isset($username)?$username:'root';
+			//string hostname = config.Hostname;
+			//string username = config.Username;
+
+			context.Response.Write (config.Username);
+
+			/*isset($username)?$username:'root';
 			$password = isset($password)?$password:null;
 			$database = isset($database)?$database:false;
 			$port = isset($port)?$port:null;
@@ -148,11 +147,11 @@ namespace DataApiDotNet_Complex
 			_context.Response.AddHeader ("Access-Control-Allow-Origin", "*");
 			Parameters parameters = new Parameters(_settings);
 			switch(parameters.Action) {
-				case "list":   ListCommandTransform(parameters); break;
-				case "read":   ReadCommand(parameters);          break;
-				case "create": CreateCommand(parameters);        break;
-				case "update": UpdateCommand(parameters);        break;
-				case "delete": DeleteCommand(parameters);        break;
+				case "list":   ListCommand(parameters);   break;
+				case "read":   ReadCommand(parameters);   break;
+				case "create": CreateCommand(parameters); break;
+				case "update": UpdateCommand(parameters); break;
+				case "delete": DeleteCommand(parameters); break;
 			}
 		}
 
@@ -191,8 +190,8 @@ namespace DataApiDotNet_Complex
 			// 	'charset'=>'UTF8'
 			// ));
 			// $api->executeCommand();
-
-
+			Base api = new Base (context,new Config{ });
+			api.ExecuteCommand ();
 		}
 
 		public bool IsReusable {
