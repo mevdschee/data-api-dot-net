@@ -2,6 +2,7 @@
 using System.Web;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Text.RegularExpressions;
 
 namespace DataApiDotNet_Complex
 {
@@ -50,7 +51,7 @@ namespace DataApiDotNet_Complex
 		protected class Settings
 		{
 			public string Method;
-			public string[] Request;
+			public string Request;
 			public NameValueCollection Get;
 			public System.IO.Stream Post;
 			public string Database;
@@ -156,6 +157,15 @@ namespace DataApiDotNet_Complex
 
 		}
 
+		protected string ParseRequestParameter(ref string request, string characters)
+		{	if (string.IsNullOrEmpty(request)) return null;
+			int pos = request.IndexOf('/');
+			string value = pos>0?request.Substring(0,pos):request;
+			request = pos>0?request.Substring(pos+1):string.Empty;
+			if (string.IsNullOrEmpty(characters)) return value;
+			return Regex.Replace(value, "/[^"+characters+"]/", "");        
+		}
+
 		public REST_CRUD_API(HttpContext context, Config config)
 		{
 			_context = context;
@@ -178,20 +188,19 @@ namespace DataApiDotNet_Complex
 			}
 
 			// connect
-			_settings.Request = config.Request.Trim ('/').Split ('/');
+			String request = config.Request.Trim ('/');
 
-			/*
-			if (!$database) {
-				$database  = $this->parseRequestParameter($request, 'a-zA-Z0-9\-_,', false);
+			if (config.Database == null) {
+				config.Database = ParseRequestParameter(ref request, "a-zA-Z0-9-_,");
+				_context.Response.Write (config.Database);
 			}
-			if (!$db) {
-				$db = $this->connectDatabase($hostname,$username,$password,$database,$port,$socket,$charset);
+			if (config.Db == null) {
+				//config.Db = ConnectDatabase(config.Hostname,config.Username,config.Password,config.Database,config.Port,config.Socket,config.Socket);
 			}
-			*/
 
 			_settings = new Settings{
 				Method = config.Method,
-				Request = _settings.Request,
+				Request = request,
 				Get = config.Get,
 				Post = config.Post,
 				Database = config.Database,
@@ -215,6 +224,7 @@ namespace DataApiDotNet_Complex
 				case "update": UpdateCommand(parameters); break;
 				case "delete": DeleteCommand(parameters); break;
 			}
+			_context.Response.Write ("OK");
 		}
 
 		// abstract 
@@ -231,7 +241,8 @@ namespace DataApiDotNet_Complex
 				Hostname = "localhost",
 				Username = "root",
 				Password = "",
-				Database = "mysql_crud_api"
+				//Database = "mysql_crud_api"
+				Database = null
 			});
 			api.ExecuteCommand ();
 		}
