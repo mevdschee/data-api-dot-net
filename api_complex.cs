@@ -200,15 +200,15 @@ namespace DataApiDotNet_Complex
 		{
 			Parameters parameters = new Parameters {};
 
-			string tables        = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9-_*,");
-			parameters.Key       = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9-,"); // auto-increment or uuid
+			string tables        = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9\\-_*,");
+			parameters.Key       = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9\\-,"); // auto-increment or uuid
 			parameters.Action    = MapMethodToAction(settings.Method,parameters.Key);
-			parameters.Callback  = ParseGetParameter(settings.Get, "callback", "a-zA-Z0-9-_");
+			parameters.Callback  = ParseGetParameter(settings.Get, "callback", "a-zA-Z0-9\\-_");
 			parameters.Page      = ParseGetParameter(settings.Get, "page", "0-9,");
 			parameters.Filters   = ParseGetParameterArray(settings.Get, "filter", null);
 			parameters.Satisfy   = ParseGetParameter(settings.Get, "satisfy", "a-z");
-			parameters.Columns   = ParseGetParameter(settings.Get, "columns", "a-zA-Z0-9-_,");
-			parameters.Order     = ParseGetParameter(settings.Get, "order", "a-zA-Z0-9-_*,");
+			parameters.Columns   = ParseGetParameter(settings.Get, "columns", "a-zA-Z0-9\\-_,");
+			parameters.Order     = ParseGetParameter(settings.Get, "order", "a-zA-Z0-9\\-_*,");
 			parameters.Transform = ParseGetParameter(settings.Get, "transform", "1");
 
 			parameters.Tables    = ProcessTablesParameter(settings.Database,tables,parameters.Action,settings.Db);
@@ -324,7 +324,7 @@ namespace DataApiDotNet_Complex
 			String request = config.Request.Trim ('/');
 
 			if (config.Database == null) {
-				config.Database = ParseRequestParameter(ref request, "a-zA-Z0-9-_,");
+				config.Database = ParseRequestParameter(ref request, "a-zA-Z0-9\\-_");
 			}
 			if (config.Db == null) {
 				config.Db = ConnectDatabase(config.Hostname,config.Username,config.Password,config.Database,config.Port,config.Socket,config.Socket);
