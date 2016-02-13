@@ -1,8 +1,12 @@
 ﻿using System;
 using System.Web;
+using System.Data;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Web.Script.Serialization;
 using System.Text.RegularExpressions;
+using System.Data.SqlClient;
+using MySql.Data.MySqlClient;
 
 namespace DataApiDotNet_Complex
 {
@@ -18,7 +22,7 @@ namespace DataApiDotNet_Complex
 		public string Database;
 		// for connectivity (defaults to localhost):
 		public string Hostname;
-		public int? Port;
+		public string Port;
 		public string Socket;
 		public string Charset;
 		// callbacks with their default behavior
@@ -27,7 +31,7 @@ namespace DataApiDotNet_Complex
 		public InputSanitizerDelegate InputSanitizer;
 		public InputValidatorDelegate InputValidator;
 		// dependencies (added for unit testing):
-		public string Db;
+		public IDbConnection Db;
 		public string Method;
 		public string Request;
 		public NameValueCollection Get;
@@ -36,8 +40,45 @@ namespace DataApiDotNet_Complex
 
 	class MySQL_CRUD_API: REST_CRUD_API
 	{
+		// interfaces that the MySql libraries implement, namely IDbConnection, IDbCommand, IDataParameters,
+
 		public MySQL_CRUD_API(HttpContext context, Config config): base(context,config)
 		{
+		}
+
+		override protected IDbConnection ConnectDatabase(string hostname,string username,string password,string database,string port,string socket,string charset)
+		{
+			string connectionString =
+				"Server=" + hostname + ";" +
+				"Database=" + database + ";" +
+				"User ID=" + username + ";" +
+				"Password=" + password + ";" +
+				"Pooling=false";
+			return new MySqlConnection(connectionString);
+		}
+
+		override protected string GetDefaultCharset()
+		{
+			return "utf8";
+		}
+	}
+
+	class MsSQL_CRUD_API: REST_CRUD_API
+	{
+		// interfaces that the MySql libraries implement, namely IDbConnection, IDbCommand, IDataParameters,
+
+		public MsSQL_CRUD_API(HttpContext context, Config config): base(context,config)
+		{
+		}
+
+		override protected IDbConnection ConnectDatabase(string hostname,string username,string password,string database,string port,string socket,string charset)
+		{
+			string connectionString =
+				"Server=" + hostname + ";" +
+				"Database=" + database + ";" +
+				"User ID=" + username + ";" +
+				"Password=" + password + ";";
+			return new SqlConnection(connectionString);
 		}
 
 		override protected string GetDefaultCharset()
@@ -59,71 +100,155 @@ namespace DataApiDotNet_Complex
 			public ColumnAuthorizerDelegate ColumnAuthorizer;
 			public InputSanitizerDelegate InputSanitizer;
 			public InputValidatorDelegate InputValidator;
-			public object Db;
+			public IDbConnection Db;
 		}
 
 		protected class Parameters
 		{
 			public string Action;
 			public string Database;
-			public string Table;
+			public string[] Tables;
 			public string Key;
 			public string Callback;
 			public string Page;
-			public string Filters;
+			public string[] Filters;
 			public string Satisfy;
 			public string Columns;
 			public string Order;
 			public string Transform;
-			public string Db;
+			public IDbConnection Db;
 			public string Input;
 			public string Collect;
 			public string Select;
 
 		}
 
+		protected void ExitWith404(string type)
+		{
+			if (_context != null) {
+				_context.Response.ContentType = null;
+				_context.Response.StatusCode = 404;
+				_context.Response.Write ("Not found (" + type + ")");
+				_context.Response.End ();
+			} else {
+				throw new Exception("Not found ("+type+")");
+			}
+		}
+
+		protected string ParseRequestParameter(ref string request, string characters)
+		{	
+			if (string.IsNullOrEmpty(request)) return null;
+			int pos = request.IndexOf('/');
+			string value = pos>0?request.Substring(0,pos):request;
+			request = pos>0?request.Substring(pos+1):string.Empty;
+			if (string.IsNullOrEmpty(characters)) return value;
+			return Regex.Replace(value, "/[^"+characters+"]/", "");        
+		}
+
+		protected string ParseGetParameter(NameValueCollection get, string name, string characters)
+		{
+			string value = get[name];
+			if (string.IsNullOrEmpty(value)) return value;
+			if (string.IsNullOrEmpty(characters)) return value;
+			return Regex.Replace(value, "/[^"+characters+"]/", "");        
+		}
+
+		protected string[] ParseGetParameterArray(NameValueCollection get, string name, string characters)
+		{
+			string value = get[name];
+			string[] values = null;
+			if (value == null) values = get.GetValues (name + "[]");
+			else values = new string[] { value };
+			if (values == null) return null;
+			if (string.IsNullOrEmpty(characters)) return values;
+			for (int i = 0; i < values.Length; i++) {
+				values[i] = Regex.Replace(values[i], "/[^"+characters+"]/", "");
+			}
+			return values;
+		}
+
+		protected string MapMethodToAction(string method,string key)
+		{
+			switch (method) {
+				case "OPTIONS": return "headers";
+				case "GET": return string.IsNullOrEmpty(key)?"list":"read";
+				case "PUT": return "update";
+				case "POST": return "create";
+				case "DELETE": return "delete";
+				default: ExitWith404("method"); break;
+			}
+			return null;
+		}
+
+		protected string[] ProcessTablesParameter(string database, string tables, string action, IDbConnection db) {
+			string blacklist = "[information_schema][mysql][sys][pg_catalog]";
+			if (blacklist.Contains("["+database.ToLower()+"]")) return new string[]{};
+			string[] tableArray = tables.Split(',');
+			List<string> tableList = new List<string> (tableArray.Length);
+			foreach (string table in tableArray) {
+				/*if (result = this->query(db,this->queries['reflect_table'],array(table,database))) {
+					while (row = this->fetch_row(result)) tableList.Add(row[0]);
+					this->close(result);
+					if (action!="list") break;
+				}*/
+				tableList.Add (table);
+			}
+			return tableList.ToArray();
+		}
+
 		protected Parameters GetParameters(Settings settings)
 		{
 			Parameters parameters = new Parameters {};
 
-			/*
-			$table     = $this->parseRequestParameter($request, 'a-zA-Z0-9\-_*,', false);
-			$key       = $this->parseRequestParameter($request, 'a-zA-Z0-9\-,', false); // auto-increment or uuid
-			$action    = $this->mapMethodToAction($method,$key);
-			$callback  = $this->parseGetParameter($get, 'callback', 'a-zA-Z0-9\-_', false);
-			$page      = $this->parseGetParameter($get, 'page', '0-9,', false);
-			$filters   = $this->parseGetParameterArray($get, 'filter', false, false);
-			$satisfy   = $this->parseGetParameter($get, 'satisfy', 'a-z', 'all');
-			$columns   = $this->parseGetParameter($get, 'columns', 'a-zA-Z0-9\-_,', false);
-			$order     = $this->parseGetParameter($get, 'order', 'a-zA-Z0-9\-_*,', false);
-			$transform = $this->parseGetParameter($get, 'transform', '1', false);
+			string tables        = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9-_*,");
+			parameters.Key       = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9-,"); // auto-increment or uuid
+			parameters.Action    = MapMethodToAction(settings.Method,parameters.Key);
+			parameters.Callback  = ParseGetParameter(settings.Get, "callback", "a-zA-Z0-9-_");
+			parameters.Page      = ParseGetParameter(settings.Get, "page", "0-9,");
+			parameters.Filters   = ParseGetParameterArray(settings.Get, "filter", null);
+			parameters.Satisfy   = ParseGetParameter(settings.Get, "satisfy", "a-z");
+			parameters.Columns   = ParseGetParameter(settings.Get, "columns", "a-zA-Z0-9-_,");
+			parameters.Order     = ParseGetParameter(settings.Get, "order", "a-zA-Z0-9-_*,");
+			parameters.Transform = ParseGetParameter(settings.Get, "transform", "1");
 
-			$table    = $this->processTableParameter($database,$table,$db);
-			$key      = $this->processKeyParameter($key,$table,$database,$db);
-			foreach ($filters as &$filter) $filter = $this->processFilterParameter($filter,$db);
-			if ($columns) $columns = explode(',',$columns);
-			$page     = $this->processPageParameter($page);
-			$order    = $this->processOrderParameter($order);
+			parameters.Tables    = ProcessTablesParameter(settings.Database,tables,parameters.Action,settings.Db);
 
-			if (empty($table)) $this->exitWith404('entity');
+			if (parameters.Tables.Length==0) ExitWith404("entity");
 
-			// reflection
-			list($collect,$select) = $this->findRelations($table,$database,$db);
-			$columns = $this->findFields($table,$collect,$select,$columns,$database,$db);
+			_context.Response.Write (parameters.Action+" - "+parameters.Tables[0]+" - "+parameters.Key+" - "+parameters.Callback);
 
-			// permissions
-			if ($table_authorizer) $this->applyTableAuthorizer($table_authorizer,$action,$database,$table);
-			if ($column_authorizer) $this->applyColumnAuthorizer($column_authorizer,$action,$database,$columns);
 
+	/*
+		$tables    = $this->processTablesParameter($database,$tables,$action,$db);
+		$key       = $this->processKeyParameter($key,$tables,$database,$db);
+		foreach ($filters as &$filter) $filter = $this->processFilterParameter($filter,$db);
+		if ($columns) $columns = explode(',',$columns);
+		$page      = $this->processPageParameter($page);
+		$satisfy   = ($satisfy && strtolower($satisfy)=='any')?'any':'all';
+		$order     = $this->processOrderParameter($order);
+
+		if (empty($tables)) $this->exitWith404('entity');
+
+		// reflection
+		list($collect,$select) = $this->findRelations($tables,$database,$db);
+		$fields = $this->findFields($tables,$collect,$select,$columns,$database,$db);
+		
+		// permissions
+		if ($table_authorizer) $this->applyTableAuthorizer($table_authorizer,$action,$database,$tables);
+		if ($column_authorizer) $this->applyColumnAuthorizer($column_authorizer,$action,$database,$fields);
+
+		if ($post) {
 			// input
 			$context = $this->retrieveInput($post);
-			if (!empty($context)) $input = $this->limitInputFields($context,$columns[$table[0]]);
+			$input = $this->filterInputByColumns($context,$fields[$tables[0]]);
+			
+			if ($input_sanitizer) $this->applyInputSanitizer($input_sanitizer,$action,$database,$tables[0],$input,$fields[$tables[0]]);
+			if ($input_validator) $this->applyInputValidator($input_validator,$action,$database,$tables[0],$input,$fields[$tables[0]],$context);
 
-			if ($input_sanitizer) $this->applyInputSanitizer($input_sanitizer,$action,$database,$table[0],$input,$columns[$table[0]]);
-			if ($input_validator) $this->applyInputValidator($input_validator,$action,$database,$table[0],$input,$columns[$table[0]],$context);
-
-			if (!empty($input)) $input = $this->convertBinary($input,$columns[$table[0]]);
-			 */
+			$this->convertBinary($input,$fields[$tables[0]]);
+		}
+		
+	 */
 
 			return parameters;
 		}
@@ -157,13 +282,21 @@ namespace DataApiDotNet_Complex
 
 		}
 
-		protected string ParseRequestParameter(ref string request, string characters)
-		{	if (string.IsNullOrEmpty(request)) return null;
-			int pos = request.IndexOf('/');
-			string value = pos>0?request.Substring(0,pos):request;
-			request = pos>0?request.Substring(pos+1):string.Empty;
-			if (string.IsNullOrEmpty(characters)) return value;
-			return Regex.Replace(value, "/[^"+characters+"]/", "");        
+		protected void HeadersCommand(Parameters parameters)
+		{
+			Dictionary<string,string> headers = new Dictionary<string,string>() {
+				{ "Access-Control-Allow-Headers", "Content-Type" },
+				{ "Access-Control-Allow-Methods", "OPTIONS, GET, PUT, POST, DELETE" },
+				{ "Access-Control-Max-Age", "1728000" }
+			};
+			if (_context != null) {
+				foreach (KeyValuePair<string, string> header in headers) {
+					_context.Response.AddHeader (header.Key, header.Value);
+				}
+			} else {
+				JavaScriptSerializer json = new JavaScriptSerializer ();
+				_context.Response.Write(json.Serialize (headers));
+			}
 		}
 
 		public REST_CRUD_API(HttpContext context, Config config)
@@ -192,10 +325,9 @@ namespace DataApiDotNet_Complex
 
 			if (config.Database == null) {
 				config.Database = ParseRequestParameter(ref request, "a-zA-Z0-9-_,");
-				_context.Response.Write (config.Database);
 			}
 			if (config.Db == null) {
-				//config.Db = ConnectDatabase(config.Hostname,config.Username,config.Password,config.Database,config.Port,config.Socket,config.Socket);
+				config.Db = ConnectDatabase(config.Hostname,config.Username,config.Password,config.Database,config.Port,config.Socket,config.Socket);
 			}
 
 			_settings = new Settings{
@@ -215,19 +347,23 @@ namespace DataApiDotNet_Complex
 
 		public void ExecuteCommand()
 		{
-			_context.Response.AddHeader ("Access-Control-Allow-Origin", "*");
+			if (_context != null) {
+				_context.Response.AddHeader ("Access-Control-Allow-Origin", "*");
+			}
 			Parameters parameters = this.GetParameters(_settings);
 			switch(parameters.Action) {
-				case "list":   ListCommand(parameters);   break;
-				case "read":   ReadCommand(parameters);   break;
-				case "create": CreateCommand(parameters); break;
-				case "update": UpdateCommand(parameters); break;
-				case "delete": DeleteCommand(parameters); break;
+				case "list":    ListCommand(parameters);    break;
+				case "read":    ReadCommand(parameters);    break;
+				case "create":  CreateCommand(parameters);  break;
+				case "update":  UpdateCommand(parameters);  break;
+				case "delete":  DeleteCommand(parameters);  break;
+				case "headers": HeadersCommand(parameters); break;
 			}
-			_context.Response.Write ("OK");
 		}
 
 		// abstract 
+
+		abstract protected IDbConnection ConnectDatabase (string hostname, string username, string password, string database, string port, string socket, string charset);
 
 		abstract protected string GetDefaultCharset ();
 
@@ -241,8 +377,8 @@ namespace DataApiDotNet_Complex
 				Hostname = "localhost",
 				Username = "root",
 				Password = "",
-				//Database = "mysql_crud_api"
-				Database = null
+				Database = "php-crud-api"
+				//Database = null
 			});
 			api.ExecuteCommand ();
 		}
