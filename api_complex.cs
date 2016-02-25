@@ -40,21 +40,118 @@ namespace DataApiDotNet_Complex
 
 	class MySQL_CRUD_API: REST_CRUD_API
 	{
+
 		// interfaces that the MySql libraries implement, namely IDbConnection, IDbCommand, IDataParameters,
 
 		public MySQL_CRUD_API(HttpContext context, Config config): base(context,config)
 		{
+			_queries = new Dictionary<string,string>() {
+				{ "reflect_table", "SELECT " +
+						"\"TABLE_NAME\" " +
+					"FROM " +
+						"\"INFORMATION_SCHEMA\".\"TABLES\" " +
+					"WHERE " +
+						"\"TABLE_NAME\" COLLATE 'utf8_bin' = ? AND " +
+						"\"TABLE_SCHEMA\" = ?" },
+				{ "reflect_pk", "SELECT " +
+						"\"COLUMN_NAME\" " +
+					"FROM " +
+						"\"INFORMATION_SCHEMA\".\"COLUMNS\" " +
+					"WHERE " +
+						"\"COLUMN_KEY\" = \'PRI\' AND " +
+						"\"TABLE_NAME\" = ? AND " +
+						"\"TABLE_SCHEMA\" = ?" },
+				{ "reflect_belongs_to", "SELECT " +
+						"\"TABLE_NAME\",\"COLUMN_NAME\", " +
+						"\"REFERENCED_TABLE_NAME\",\"REFERENCED_COLUMN_NAME\" " +
+					"FROM " +
+						"\"INFORMATION_SCHEMA\".\"KEY_COLUMN_USAGE\" " +
+					"WHERE " +
+						"\"TABLE_NAME\" COLLATE \'utf8_bin\' = ? AND " +
+						"\"REFERENCED_TABLE_NAME\" COLLATE \'utf8_bin\' IN ? AND " +
+						"\"TABLE_SCHEMA\" = ? AND " +
+						"\"REFERENCED_TABLE_SCHEMA\" = ?'," },
+				{ "reflect_has_many", "SELECT " +
+						"\"TABLE_NAME\",\"COLUMN_NAME\", " +
+						"\"REFERENCED_TABLE_NAME\",\"REFERENCED_COLUMN_NAME\" " +
+					"FROM " +
+						"\"INFORMATION_SCHEMA\".\"KEY_COLUMN_USAGE\" " +
+					"WHERE " +
+						"\"TABLE_NAME\" COLLATE \'utf8_bin\' IN ? AND " +
+						"\"REFERENCED_TABLE_NAME\" COLLATE \'utf8_bin\' = ? AND " +
+						"\"TABLE_SCHEMA\" = ? AND " +
+					"\"REFERENCED_TABLE_SCHEMA\" = ?'," },
+				{ "reflect_habtm", "SELECT " +
+						"k1.\"TABLE_NAME\", k1.\"COLUMN_NAME\", " +
+						"k1.\"REFERENCED_TABLE_NAME\", k1.\"REFERENCED_COLUMN_NAME\", " +
+						"k2.\"TABLE_NAME\", k2.\"COLUMN_NAME\", " +
+						"k2.\"REFERENCED_TABLE_NAME\", k2.\"REFERENCED_COLUMN_NAME\" " +
+					"FROM " +
+						"\"INFORMATION_SCHEMA\".\"KEY_COLUMN_USAGE\" k1, " +
+						"\"INFORMATION_SCHEMA\".\"KEY_COLUMN_USAGE\" k2 " +
+					"WHERE " +
+						"k1.\"TABLE_SCHEMA\" = ? AND " +
+						"k2.\"TABLE_SCHEMA\" = ? AND " +
+						"k1.\"REFERENCED_TABLE_SCHEMA\" = ? AND " +
+						"k2.\"REFERENCED_TABLE_SCHEMA\" = ? AND " +
+						"k1.\"TABLE_NAME\" COLLATE \'utf8_bin\' = k2.\"TABLE_NAME\" COLLATE \'utf8_bin\' AND " +
+						"k1.\"REFERENCED_TABLE_NAME\" COLLATE \'utf8_bin\' = ? AND " +
+						"k2.\"REFERENCED_TABLE_NAME\" COLLATE \'utf8_bin\' IN ?'" }
+			};
 		}
 
 		override protected IDbConnection ConnectDatabase(string hostname,string username,string password,string database,string port,string socket,string charset)
 		{
+			MySqlConnection db=null;
 			string connectionString =
 				"Server=" + hostname + ";" +
 				"Database=" + database + ";" +
 				"User ID=" + username + ";" +
 				"Password=" + password + ";" +
-				"Pooling=false";
-			return new MySqlConnection(connectionString);
+				"Pooling=true";
+			try {
+				db = new MySqlConnection(connectionString);
+				db.Open();
+			} catch (MySqlException ex) {
+				throw new Exception("Connect failed. "+ex.Message);
+			}
+			if (socket!=null) {
+				throw new Exception("Socket connection is not supported.");
+			}
+			try {
+				(new MySqlCommand("SET SESSION sql_mode = 'ANSI_QUOTES';", db)).ExecuteNonQuery ();
+			} catch (MySqlException ex) {
+				throw new Exception("Error setting ANSI quotes. " + ex.Message);
+			}
+			return db;
+		}
+
+		override protected IDataReader Query(IDbConnection db, string sql, object[] parameters)
+		{
+			int i = 0;
+			List<string> parameterList = new List<string> (parameters.Length);
+			sql = Regex.Replace (sql, "\\!|\\?", delegate(Match match) {
+				object parameter = parameters [i++];
+				if (match.Value == "!") {
+					return Regex.Replace (parameter.ToString(), "[^a-zA-Z0-9\\-_=<>]", "");
+				}
+				/*if (is_array($parameter)) return '('.implode(',',array_map(function($v) use (&$db) {
+					return "'".mysqli_real_escape_string($db,$v)."'";
+				},$parameter)).')';
+				if (is_object($parameter) && $parameter->type=='base64') {
+					return "x'".bin2hex(base64_decode($parameter->data))."'";
+				}
+				if ($parameter===null) return 'NULL';*/
+				parameterList.Add (parameter);
+				return "@_" + (parameterList.Count - 1);
+			});
+			MySqlCommand command = new MySqlCommand (sql, (MySqlConnection)db);
+			for (i = 0; i < parameterList.Count; i++) {
+				command.Parameters.AddWithValue ("@_" + i, parameterList [i]);
+			}
+			//DEBUG
+			_context.Response.Write (sql + "\n");
+			return command.ExecuteReader ();
 		}
 
 		override protected string GetDefaultCharset()
@@ -63,7 +160,7 @@ namespace DataApiDotNet_Complex
 		}
 	}
 
-	class MsSQL_CRUD_API: REST_CRUD_API
+	/*class MsSQL_CRUD_API: REST_CRUD_API
 	{
 		// interfaces that the MySql libraries implement, namely IDbConnection, IDbCommand, IDataParameters,
 
@@ -81,14 +178,23 @@ namespace DataApiDotNet_Complex
 			return new SqlConnection(connectionString);
 		}
 
+		override protected IDataReader Query(IDbConnection db, string sql, object[] parameters)
+		{
+		}
+
 		override protected string GetDefaultCharset()
 		{
 			return "utf8";
 		}
-	}
+	}*/
 
 	abstract class REST_CRUD_API
 	{
+		protected Dictionary<string,string> _queries;
+		protected Settings _settings;
+
+		protected HttpContext _context;
+
 		protected class Settings
 		{
 			public string Method;
@@ -108,7 +214,7 @@ namespace DataApiDotNet_Complex
 			public string Action;
 			public string Database;
 			public string[] Tables;
-			public string Key;
+			public string[] Key;
 			public string Callback;
 			public string Page;
 			public string[] Filters;
@@ -171,7 +277,7 @@ namespace DataApiDotNet_Complex
 		{
 			switch (method) {
 				case "OPTIONS": return "headers";
-				case "GET": return string.IsNullOrEmpty(key)?"list":"read";
+				case "GET": return string.IsNullOrWhiteSpace(key)?"list":"read";
 				case "PUT": return "update";
 				case "POST": return "create";
 				case "DELETE": return "delete";
@@ -186,14 +292,33 @@ namespace DataApiDotNet_Complex
 			string[] tableArray = tables.Split(',');
 			List<string> tableList = new List<string> (tableArray.Length);
 			foreach (string table in tableArray) {
-				/*if (result = this->query(db,this->queries['reflect_table'],array(table,database))) {
-					while (row = this->fetch_row(result)) tableList.Add(row[0]);
-					this->close(result);
-					if (action!="list") break;
-				}*/
-				tableList.Add (table);
+				IDataReader reader = Query (db, _queries ["reflect_table"], new string[]{ table, database });
+				while (reader.Read()) {
+					tableList.Add (reader.GetString (0));
+					if (action=="list") break;
+				}
+				reader.Close ();
 			}
+			if (tableList.Count==0) ExitWith404("entity");
 			return tableList.ToArray();
+		}
+
+		protected string FindSinglePrimaryKey(string[] tables, string database, IDbConnection db) {
+			return "id";
+		}
+
+		protected string[] ProcessKeyParameter(string key, string[] tables, string database, IDbConnection db) {
+			if (string.IsNullOrEmpty (key))	return null;
+			int count = 0;
+			string field = null;
+			IDataReader reader = Query (db, _queries ["reflect_pk"], new string[]{ tables[0], database });
+			while (reader.Read()) {
+				count++;
+				field = reader.GetString (0);
+			}
+			reader.Close ();
+			if (count!=1 || field==null) ExitWith404("1pk");
+			return new string[]{ key, field };
 		}
 
 		protected Parameters GetParameters(Settings settings)
@@ -201,8 +326,8 @@ namespace DataApiDotNet_Complex
 			Parameters parameters = new Parameters {};
 
 			string tables        = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9\\-_*,");
-			parameters.Key       = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9\\-,"); // auto-increment or uuid
-			parameters.Action    = MapMethodToAction(settings.Method,parameters.Key);
+			string key           = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9\\-,"); // auto-increment or uuid
+			parameters.Action    = MapMethodToAction(settings.Method,key);
 			parameters.Callback  = ParseGetParameter(settings.Get, "callback", "a-zA-Z0-9\\-_");
 			parameters.Page      = ParseGetParameter(settings.Get, "page", "0-9,");
 			parameters.Filters   = ParseGetParameterArray(settings.Get, "filter", null);
@@ -210,56 +335,47 @@ namespace DataApiDotNet_Complex
 			parameters.Columns   = ParseGetParameter(settings.Get, "columns", "a-zA-Z0-9\\-_,");
 			parameters.Order     = ParseGetParameter(settings.Get, "order", "a-zA-Z0-9\\-_*,");
 			parameters.Transform = ParseGetParameter(settings.Get, "transform", "1");
+			parameters.Db        = settings.Db;
 
 			parameters.Tables    = ProcessTablesParameter(settings.Database,tables,parameters.Action,settings.Db);
-
-			if (parameters.Tables.Length==0) ExitWith404("entity");
-
-			_context.Response.Write (parameters.Action+" - "+parameters.Tables[0]+" - "+parameters.Key+" - "+parameters.Callback);
+			parameters.Key       = ProcessKeyParameter(key,parameters.Tables,settings.Database,settings.Db);
 
 
-	/*
-		$tables    = $this->processTablesParameter($database,$tables,$action,$db);
-		$key       = $this->processKeyParameter($key,$tables,$database,$db);
-		foreach ($filters as &$filter) $filter = $this->processFilterParameter($filter,$db);
-		if ($columns) $columns = explode(',',$columns);
-		$page      = $this->processPageParameter($page);
-		$satisfy   = ($satisfy && strtolower($satisfy)=='any')?'any':'all';
-		$order     = $this->processOrderParameter($order);
+		/*
+			foreach ($filters as &$filter) $filter = $this->processFilterParameter($filter,$db);
+			if ($columns) $columns = explode(',',$columns);
+			$page      = $this->processPageParameter($page);
+			$satisfy   = ($satisfy && strtolower($satisfy)=='any')?'any':'all';
+			$order     = $this->processOrderParameter($order);
+		*/
 
-		if (empty($tables)) $this->exitWith404('entity');
 
-		// reflection
-		list($collect,$select) = $this->findRelations($tables,$database,$db);
-		$fields = $this->findFields($tables,$collect,$select,$columns,$database,$db);
-		
-		// permissions
-		if ($table_authorizer) $this->applyTableAuthorizer($table_authorizer,$action,$database,$tables);
-		if ($column_authorizer) $this->applyColumnAuthorizer($column_authorizer,$action,$database,$fields);
-
-		if ($post) {
-			// input
-			$context = $this->retrieveInput($post);
-			$input = $this->filterInputByColumns($context,$fields[$tables[0]]);
+		/*
+			// reflection
+			list($collect,$select) = $this->findRelations($tables,$database,$db);
+			$fields = $this->findFields($tables,$collect,$select,$columns,$database,$db);
 			
-			if ($input_sanitizer) $this->applyInputSanitizer($input_sanitizer,$action,$database,$tables[0],$input,$fields[$tables[0]]);
-			if ($input_validator) $this->applyInputValidator($input_validator,$action,$database,$tables[0],$input,$fields[$tables[0]],$context);
+			// permissions
+			if ($table_authorizer) $this->applyTableAuthorizer($table_authorizer,$action,$database,$tables);
+			if ($column_authorizer) $this->applyColumnAuthorizer($column_authorizer,$action,$database,$fields);
 
-			$this->convertBinary($input,$fields[$tables[0]]);
-		}
-		
-	 */
+			if ($post) {
+				// input
+				$context = $this->retrieveInput($post);
+				$input = $this->filterInputByColumns($context,$fields[$tables[0]]);
+				
+				if ($input_sanitizer) $this->applyInputSanitizer($input_sanitizer,$action,$database,$tables[0],$input,$fields[$tables[0]]);
+				if ($input_validator) $this->applyInputValidator($input_validator,$action,$database,$tables[0],$input,$fields[$tables[0]],$context);
+
+				$this->convertBinary($input,$fields[$tables[0]]);
+			}
+			
+		 */
+			//DEBUG
+			//_context.Response.Write (parameters.Action+" - "+parameters.Tables[0]+" - "+parameters.Key+" - "+parameters.Callback);
+
 
 			return parameters;
-		}
-
-		protected HttpContext _context;
-
-		protected Settings _settings;
-
-		protected void ListCommand(Parameters parameters)
-		{
-
 		}
 
 		protected void ReadCommand(Parameters parameters)
@@ -278,6 +394,11 @@ namespace DataApiDotNet_Complex
 		}
 
 		protected void DeleteCommand(Parameters parameters)
+		{
+
+		}
+
+		protected void ListCommand(Parameters parameters)
 		{
 
 		}
@@ -364,6 +485,8 @@ namespace DataApiDotNet_Complex
 		// abstract 
 
 		abstract protected IDbConnection ConnectDatabase (string hostname, string username, string password, string database, string port, string socket, string charset);
+
+		abstract protected IDataReader Query (IDbConnection db, string sql, object[] parameters);
 
 		abstract protected string GetDefaultCharset ();
 
