@@ -108,7 +108,7 @@ namespace DataApiDotNet_Complex
 				"Database=" + database + ";" +
 				"User ID=" + username + ";" +
 				"Password=" + password + ";" +
-				"Pooling=true";
+				"Pooling=true; CharSet=utf8;";
 			try {
 				db = new MySqlConnection(connectionString);
 				db.Open();
@@ -129,7 +129,7 @@ namespace DataApiDotNet_Complex
 		override protected IDataReader Query(IDbConnection db, string sql, object[] parameters)
 		{
 			int i = 0;
-			List<string> parameterList = new List<string> (parameters.Length);
+			List<object> parameterList = new List<object> (parameters.Length);
 			sql = Regex.Replace (sql, "\\!|\\?", delegate(Match match) {
 				object parameter = parameters [i++];
 				if (match.Value == "!") {
