@@ -11,9 +11,24 @@ using MySql.Data.MySqlClient;
 namespace DataApiDotNet_Complex
 {
 	delegate bool TableAuthorizerDelegate  (string action, string database, string table);
+	delegate bool RecordFilterDelegate     (string action, string database, string table);
 	delegate bool ColumnAuthorizerDelegate (string action, string database, string table, string column);
+	delegate bool TenantFunctionDelegate   (string action, string database, string table, string column);
 	delegate bool InputSanitizerDelegate   (string action, string database, string table, string column, string type, object value);
 	delegate bool InputValidatorDelegate   (string action, string database, string table, string column, string type, object value, NameValueCollection context);
+
+	struct Filter
+	{
+		public string Field;
+		public string Comparator;
+		public object Value;
+	}
+
+	struct FilterSet
+	{
+		public List <Filter> Or;
+		public List <Filter> And;
+	}
 
 	class Config
 	{
@@ -27,7 +42,9 @@ namespace DataApiDotNet_Complex
 		public string Charset;
 		// callbacks with their default behavior
 		public TableAuthorizerDelegate TableAuthorizer;
+		public RecordFilterDelegate RecordFilter;
 		public ColumnAuthorizerDelegate ColumnAuthorizer;
+		public TenantFunctionDelegate TenantFunction;
 		public InputSanitizerDelegate InputSanitizer;
 		public InputValidatorDelegate InputValidator;
 		// dependencies (added for unit testing):
@@ -150,8 +167,12 @@ namespace DataApiDotNet_Complex
 				command.Parameters.AddWithValue ("@_" + i, parameterList [i]);
 			}
 			//DEBUG
-			_context.Response.Write (sql + "\n");
+			//_context.Response.Write (sql + "\n");
 			return command.ExecuteReader ();
+		}
+
+		override protected string LikeEscape(string s) {
+			return s.Replace("%",@"\%").Replace("_",@"\_");
 		}
 
 		override protected string GetDefaultCharset()
@@ -216,11 +237,10 @@ namespace DataApiDotNet_Complex
 			public string[] Tables;
 			public string[] Key;
 			public string Callback;
-			public string Page;
-			public string[] Filters;
-			public string Satisfy;
-			public string Columns;
-			public string Order;
+			public string[] Page;
+			public Dictionary<string, FilterSet> Filters;
+			public string Fields;
+			public string[] Order;
 			public string Transform;
 			public IDbConnection Db;
 			public string Input;
@@ -321,39 +341,96 @@ namespace DataApiDotNet_Complex
 			return new string[]{ key, field };
 		}
 
+		protected string[] ProcessOrderParameter(string order) {
+			string[] result = null;
+			if (order!=null) {
+				result = order.Split(new char[]{','},2);
+				if (result.Length<2) result[1]="ASC";
+				result[1] = result[1].ToUpper()=="DESC"?"DESC":"ASC";
+			}
+			return result;
+		}
+
+		protected Filter ConvertFilter(string field, string comparator, string value) {
+			Filter filter = new Filter();
+			filter.Field = field;
+			filter.Comparator = null;
+			filter.Value = value;
+			switch (comparator.ToLower()) {
+				case "cs": filter.Comparator = "LIKE"; filter.Value = '%'+LikeEscape(value)+'%'; break;
+				case "sw": filter.Comparator = "LIKE"; filter.Value = LikeEscape(value)+'%'; break;
+				case "ew": filter.Comparator = "LIKE"; filter.Value = '%'+LikeEscape(value); break;
+				case "eq": filter.Comparator = "="; break;
+				case "ne": filter.Comparator = "<>"; break;
+				case "lt": filter.Comparator = "<"; break;
+				case "le": filter.Comparator = "<="; break;
+				case "ge": filter.Comparator = ">="; break;
+				case "gt": filter.Comparator = ">"; break;
+				case "in": filter.Comparator = "IN"; filter.Value = value.Split(','); break;
+			}
+			return filter;
+		}
+
+		protected List <Filter> ConvertFilters(string[] filters) {
+			List <Filter> results = new List<Filter>(filters.Length);
+			if (filters!=null) {
+				for (int i=0;i<filters.Length;i++) {
+					string[] filter = filters[i].Split(new char[]{','},3);
+					if (filter.Length == 3) {
+						results.Add(ConvertFilter(filter[0],filter[1],filter[2]));
+					}
+				}
+			}
+			return results;
+		}
+
+		protected Dictionary<string,FilterSet> ProcessFiltersParameter(string[] tables,string satisfy,string[] filters) {
+			Dictionary<string,FilterSet> results = new Dictionary<string,FilterSet> ();
+			FilterSet filterSet = new FilterSet();
+			List <Filter> result = ConvertFilters(filters);
+			if (result==null) return results;
+			if (satisfy.ToLower () == "any") filterSet.Or = result;
+			else filterSet.And = result;
+			results.Add(tables[0],filterSet);
+			return results;
+		}
+
+		protected string[] ProcessPageParameter(string page) {
+			string[] result = null;
+			if (page!=null) {
+				result = page.Split(new char[]{','},2);
+				if (result.Length<2) result[1]="20";
+				result[0] = ""+(Int32.Parse(result[0])-1)*Int32.Parse(result[1]);
+			}
+			return result;
+		}
+
 		protected Parameters GetParameters(Settings settings)
 		{
 			Parameters parameters = new Parameters {};
 
-			string tables        = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9\\-_*,");
-			string key           = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9\\-,"); // auto-increment or uuid
+			string tables        = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9\\-_,");
+			string key           = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9\\-_,"); // auto-increment or uuid
 			parameters.Action    = MapMethodToAction(settings.Method,key);
 			parameters.Callback  = ParseGetParameter(settings.Get, "callback", "a-zA-Z0-9\\-_");
-			parameters.Page      = ParseGetParameter(settings.Get, "page", "0-9,");
-			parameters.Filters   = ParseGetParameterArray(settings.Get, "filter", null);
-			parameters.Satisfy   = ParseGetParameter(settings.Get, "satisfy", "a-z");
-			parameters.Columns   = ParseGetParameter(settings.Get, "columns", "a-zA-Z0-9\\-_,");
-			parameters.Order     = ParseGetParameter(settings.Get, "order", "a-zA-Z0-9\\-_*,");
+			string page          = ParseGetParameter(settings.Get, "page", "0-9,");
+			string[] filters     = ParseGetParameterArray(settings.Get, "filter", null);
+			string satisfy       = ParseGetParameter(settings.Get, "satisfy", "a-z");
+			string columns       = ParseGetParameter(settings.Get, "columns", "a-zA-Z0-9\\-_,");
+			string order         = ParseGetParameter(settings.Get, "order", "a-zA-Z0-9\\-_,");
 			parameters.Transform = ParseGetParameter(settings.Get, "transform", "1");
 			parameters.Db        = settings.Db;
 
 			parameters.Tables    = ProcessTablesParameter(settings.Database,tables,parameters.Action,settings.Db);
 			parameters.Key       = ProcessKeyParameter(key,parameters.Tables,settings.Database,settings.Db);
-
-
-		/*
-			foreach ($filters as &$filter) $filter = $this->processFilterParameter($filter,$db);
-			if ($columns) $columns = explode(',',$columns);
-			$page      = $this->processPageParameter($page);
-			$satisfy   = ($satisfy && strtolower($satisfy)=='any')?'any':'all';
-			$order     = $this->processOrderParameter($order);
-		*/
-
+			parameters.Filters   = ProcessFiltersParameter(parameters.Tables,satisfy,filters);
+			parameters.Page      = ProcessPageParameter(page);
+			parameters.Order     = ProcessOrderParameter(order);
 
 		/*
 			// reflection
 			list($collect,$select) = $this->findRelations($tables,$database,$db);
-			$fields = $this->findFields($tables,$collect,$select,$columns,$database,$db);
+			parameters.Fields = $this->findFields($tables,$collect,$select,$columns,$database,$db);
 			
 			// permissions
 			if ($table_authorizer) $this->applyTableAuthorizer($table_authorizer,$action,$database,$tables);
@@ -372,7 +449,7 @@ namespace DataApiDotNet_Complex
 			
 		 */
 			//DEBUG
-			//_context.Response.Write (parameters.Action+" - "+parameters.Tables[0]+" - "+parameters.Key+" - "+parameters.Callback);
+			_context.Response.Write (parameters.Action+" - "+parameters.Tables[0]+" - "+parameters.Key+" - "+parameters.Callback);
 
 
 			return parameters;
@@ -487,6 +564,8 @@ namespace DataApiDotNet_Complex
 		abstract protected IDbConnection ConnectDatabase (string hostname, string username, string password, string database, string port, string socket, string charset);
 
 		abstract protected IDataReader Query (IDbConnection db, string sql, object[] parameters);
+
+		abstract protected string LikeEscape(string s);
 
 		abstract protected string GetDefaultCharset ();
 
