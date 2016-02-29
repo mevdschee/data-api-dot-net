@@ -342,12 +342,11 @@ namespace DataApiDotNet_Complex
 		}
 
 		protected string[] ProcessOrderParameter(string order) {
-			string[] result = null;
-			if (order!=null) {
-				result = order.Split(new char[]{','},2);
-				if (result.Length<2) result[1]="ASC";
-				result[1] = result[1].ToUpper()=="DESC"?"DESC":"ASC";
-			}
+			if (order == null) return null;
+			string[] result = new string[2] { order, "ASC"} ;
+			if (order.IndexOf(',')>=0) result = order.Split(new char[]{','},2);
+			if (result[0].Length == 0)	return null;
+			result[1] = result[1].ToUpper()=="DESC"?"DESC":"ASC";
 			return result;
 		}
 
@@ -396,12 +395,14 @@ namespace DataApiDotNet_Complex
 		}
 
 		protected string[] ProcessPageParameter(string page) {
-			string[] result = null;
-			if (page!=null) {
-				result = page.Split(new char[]{','},2);
-				if (result.Length<2) result[1]="20";
-				result[0] = ""+(Int32.Parse(result[0])-1)*Int32.Parse(result[1]);
+			if (page == null) return null;
+			string[] result = new string[2] { page, "20"} ;
+			if (page.IndexOf(',')>0) result = page.Split(new char[]{','},2);
+			int number, size;
+			if (!Int32.TryParse (result [0], out number) || !Int32.TryParse (result [1], out size)) {
+				return null;
 			}
+			result [0] = Convert.ToString ((number - 1) * size);
 			return result;
 		}
 
