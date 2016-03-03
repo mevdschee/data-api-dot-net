@@ -32,7 +32,6 @@ namespace DataApiDotNet_Complex
 
 	struct Relations
 	{
-		public List<string> Tables;
 		public Dictionary<string,Dictionary<string,List<string>>> Collect;
 		public Dictionary<string,Dictionary<string,List<string>>> Select;
 	}
@@ -241,7 +240,7 @@ namespace DataApiDotNet_Complex
 		{
 			public string Action;
 			public string Database;
-			public string[] Tables;
+			public List<string> Tables;
 			public string[] Key;
 			public string Callback;
 			public string[] Page;
@@ -251,8 +250,8 @@ namespace DataApiDotNet_Complex
 			public string Transform;
 			public IDbConnection Db;
 			public string Input;
-			public string Collect;
-			public string Select;
+			public Dictionary<string,Dictionary<string,List<string>>> Collect;
+			public Dictionary<string,Dictionary<string,List<string>>> Select;
 
 		}
 
@@ -313,9 +312,9 @@ namespace DataApiDotNet_Complex
 			return null;
 		}
 
-		protected string[] ProcessTablesParameter(string database, string tables, string action, IDbConnection db) {
+		protected List<string> ProcessTablesParameter(string database, string tables, string action, IDbConnection db) {
 			string blacklist = "[information_schema][mysql][sys][pg_catalog]";
-			if (blacklist.Contains("["+database.ToLower()+"]")) return new string[]{};
+			if (blacklist.Contains("["+database.ToLower()+"]")) return new List<string>();
 			string[] tableArray = tables.Split(',');
 			List<string> tableList = new List<string> (tableArray.Length);
 			foreach (string table in tableArray) {
@@ -327,23 +326,23 @@ namespace DataApiDotNet_Complex
 				reader.Close ();
 			}
 			if (tableList.Count==0) ExitWith404("entity");
-			return tableList.ToArray();
+			return tableList;
 		}
 
-		protected string FindSinglePrimaryKey(string[] tables, string database, IDbConnection db) {
+		protected string FindSinglePrimaryKey(List<string> tables, string database, IDbConnection db) {
 			return "id";
 		}
 
-		protected string[] ProcessKeyParameter(string key, string[] tables, string database, IDbConnection db) {
+		protected string[] ProcessKeyParameter(string key, List<string> tables, string database, IDbConnection db) {
 			if (string.IsNullOrEmpty (key))	return null;
 			int count = 0;
 			string field = null;
-			IDataReader reader = Query (db, _queries ["reflect_pk"], new string[]{ tables[0], database });
-			while (reader.Read()) {
+			IDataReader r = Query (db, _queries ["reflect_pk"], new string[]{ tables[0], database });
+			while (r.Read()) {
 				count++;
-				field = reader.GetString (0);
+				field = r.GetString (0);
 			}
-			reader.Close ();
+			r.Close ();
 			if (count!=1 || field==null) ExitWith404("1pk");
 			return new string[]{ key, field };
 		}
@@ -390,7 +389,7 @@ namespace DataApiDotNet_Complex
 			return results;
 		}
 
-		protected Dictionary<string,FilterSet> ProcessFiltersParameter(string[] tables,string satisfy,string[] filters) {
+		protected Dictionary<string,FilterSet> ProcessFiltersParameter(List<string> tables,string satisfy,string[] filters) {
 			Dictionary<string,FilterSet> results = new Dictionary<string,FilterSet> ();
 			FilterSet filterSet = new FilterSet();
 			List <Filter> result = ConvertFilters(filters);
@@ -413,44 +412,51 @@ namespace DataApiDotNet_Complex
 			return result;
 		}
 
-		protected Relations FindRelations(string[] tables,string database,IDbConnection db) {
-			Relations relations = new Relations();
-			relations.Tables = new List<string>();
-			relations.Collect = new Dictionary<string,Dictionary<string,List<string>>>();
-			relations.Select = new Dictionary<string,Dictionary<string,List<string>>>();
+		protected void FindRelations(ref List<string> tables,ref Dictionary<string,Dictionary<string,List<string>>> collect,ref Dictionary<string,Dictionary<string,List<string>>> select,string database,IDbConnection db) {
+			collect = new Dictionary<string,Dictionary<string,List<string>>> ();
+			select = new Dictionary<string,Dictionary<string,List<string>>> ();
+			List<string> newTables = new List<string>();
 
-			List<string> tableList = new List<string> (tables);
+			while (tables.Count>1) {
+				string table0 = tables[0];
+				tables.RemoveAt (0);
+				newTables.Add(table0);
 
-			while (tableList.Count>1) {
-				string table0 = tableList[0];
-				tableList.RemoveAt (0);
-				relations.Tables.Add(table0);
+				object[] p;
+				IDataReader r;
 
-				/*$result = $this->query($db,$this->queries['reflect_belongs_to'],array($table0,$tables,$database,$database));
-				while ($row = $this->fetch_row($result)) {
-					$collect[$row[0]][$row[1]]=array();
-					$select[$row[2]][$row[3]]=array($row[0],$row[1]);
-					if (!relations.Tables.Contains($row[0])) relations.Tables.Add($row[0]);
+				p = new object[]{ table0, newTables.ToArray(), database, database };
+				r = Query(db,_queries["reflect_belongs_to"],p);
+				while (r.Read()) {
+					collect[r.GetString(0)][r.GetString(1)]=new List<string>();
+					select[r.GetString(2)][r.GetString(3)]=new List<string>{r.GetString(0),r.GetString(1)};
+					if (!newTables.Contains(r.GetString(0))) newTables.Add(r.GetString(0));
 				}
-				$result = $this->query($db,$this->queries['reflect_has_many'],array($tables,$table0,$database,$database));
-				while ($row = $this->fetch_row($result)) {
-					$collect[$row[2]][$row[3]]=array();
-					$select[$row[0]][$row[1]]=array($row[2],$row[3]);
-					if (!relations.Tables.Contains($row[2])) relations.Tables.Add($row[2]);
+				r.Close ();
+
+				p = new object[]{ newTables.ToArray(), table0, database, database };
+				r = Query(db,_queries["reflect_has_many"],p);
+				while (r.Read()) {
+					collect[r.GetString(2)][r.GetString(3)]=new List<string>();
+					select[r.GetString(0)][r.GetString(1)]=new List<string>{r.GetString(2),r.GetString(3)};
+					if (!newTables.Contains(r.GetString(2))) newTables.Add(r.GetString(2));
 				}
-				$result = $this->query($db,$this->queries['reflect_habtm'],array($database,$database,$database,$database,$table0,$tables));
-				while ($row = $this->fetch_row($result)) {
-					$collect[$row[2]][$row[3]]=array();
-					$select[$row[0]][$row[1]]=array($row[2],$row[3]);
-					$collect[$row[4]][$row[5]]=array();
-					$select[$row[6]][$row[7]]=array($row[4],$row[5]);
-					if (!relations.Tables.Contains($row[2])) relations.Tables.Add($row[2]);
-					if (!relations.Tables.Contains($row[4])) relations.Tables.Add($row[4]);
-				}*/
+				r.Close ();
+
+				p = new object[]{ database, database, database, database, table0, newTables.ToArray() };
+				r = Query(db,_queries["reflect_habtm"],p);
+				while (r.Read()) {
+					collect[r.GetString(2)][r.GetString(3)]=new List<string>();
+					select[r.GetString(0)][r.GetString(1)]=new List<string>{r.GetString(2),r.GetString(3)};
+					collect[r.GetString(4)][r.GetString(5)]=new List<string>();
+					select[r.GetString(6)][r.GetString(7)]=new List<string>{r.GetString(4),r.GetString(5)};
+					if (!newTables.Contains(r.GetString(2))) newTables.Add(r.GetString(2));
+					if (!newTables.Contains(r.GetString(4))) newTables.Add(r.GetString(4));
+				}
+				r.Close ();
 			}
-			relations.Tables.Add(tableList[0]);
-
-			return relations;
+			newTables.Add(tables[0]);
+			tables = newTables;
 		}
 
 
@@ -468,17 +474,18 @@ namespace DataApiDotNet_Complex
 			string columns       = ParseGetParameter(settings.Get, "columns", "a-zA-Z0-9\\-_,");
 			string order         = ParseGetParameter(settings.Get, "order", "a-zA-Z0-9\\-_,");
 			parameters.Transform = ParseGetParameter(settings.Get, "transform", "1");
+			parameters.Database  = settings.Database;
 			parameters.Db        = settings.Db;
 
-			parameters.Tables    = ProcessTablesParameter(settings.Database,tables,parameters.Action,settings.Db);
-			parameters.Key       = ProcessKeyParameter(key,parameters.Tables,settings.Database,settings.Db);
+			parameters.Tables    = ProcessTablesParameter(parameters.Database,tables,parameters.Action,parameters.Db);
+			parameters.Key       = ProcessKeyParameter(key,parameters.Tables,parameters.Database,parameters.Db);
 			parameters.Filters   = ProcessFiltersParameter(parameters.Tables,satisfy,filters);
 			parameters.Page      = ProcessPageParameter(page);
 			parameters.Order     = ProcessOrderParameter(order);
 
-		/*
 			// reflection
-			list($tables,$collect,$select) = $this->findRelations($tables,$database,$db);
+			FindRelations(ref parameters.Tables,ref parameters.Collect,ref parameters.Select,parameters.Database,parameters.Db);
+			/*
 			$fields = $this->findFields($tables,$collect,$select,$columns,$database,$db);
 
 			// permissions
@@ -502,7 +509,6 @@ namespace DataApiDotNet_Complex
 		 */
 			//DEBUG
 			_context.Response.Write (parameters.Action+" - "+parameters.Tables[0]+" - "+String.Join(",",parameters.Key)+" - "+parameters.Callback+" - "+String.Join(",",parameters.Page));
-
 
 			return parameters;
 		}
