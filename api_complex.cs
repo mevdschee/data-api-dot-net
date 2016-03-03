@@ -409,48 +409,44 @@ namespace DataApiDotNet_Complex
 		protected void FindRelations(ref List<string> tables,ref Dictionary<string,Dictionary<string,List<string>>> collect,ref Dictionary<string,Dictionary<string,List<string>>> select,string database,IDbConnection db) {
 			collect = new Dictionary<string,Dictionary<string,List<string>>> ();
 			select = new Dictionary<string,Dictionary<string,List<string>>> ();
-			List<string> newTables = new List<string>();
+			List<string> tableset = new List<string>();
 
 			while (tables.Count>1) {
 				string table0 = tables[0];
 				tables.RemoveAt (0);
-				newTables.Add(table0);
+				tableset.Add(table0);
 
-				object[] p;
 				IDataReader r;
 
-				p = new object[]{ table0, newTables.ToArray(), database, database };
-				r = Query(db,_queries["reflect_belongs_to"],p);
+				r = Query(db,_queries["reflect_belongs_to"],new object[]{ table0, tables.ToArray(), database, database });
 				while (r.Read()) {
 					collect[r.GetString(0)][r.GetString(1)]=new List<string>();
 					select[r.GetString(2)][r.GetString(3)]=new List<string>{r.GetString(0),r.GetString(1)};
-					if (!newTables.Contains(r.GetString(0))) newTables.Add(r.GetString(0));
+					if (!tableset.Contains(r.GetString(0))) tableset.Add(r.GetString(0));
 				}
 				r.Close ();
 
-				p = new object[]{ newTables.ToArray(), table0, database, database };
-				r = Query(db,_queries["reflect_has_many"],p);
+				r = Query(db,_queries["reflect_has_many"],new object[]{ tables.ToArray(), table0, database, database });
 				while (r.Read()) {
 					collect[r.GetString(2)][r.GetString(3)]=new List<string>();
 					select[r.GetString(0)][r.GetString(1)]=new List<string>{r.GetString(2),r.GetString(3)};
-					if (!newTables.Contains(r.GetString(2))) newTables.Add(r.GetString(2));
+					if (!tableset.Contains(r.GetString(2))) tableset.Add(r.GetString(2));
 				}
 				r.Close ();
 
-				p = new object[]{ database, database, database, database, table0, newTables.ToArray() };
-				r = Query(db,_queries["reflect_habtm"],p);
+				r = Query(db,_queries["reflect_habtm"],new object[]{ database, database, database, database, table0, tables.ToArray() });
 				while (r.Read()) {
 					collect[r.GetString(2)][r.GetString(3)]=new List<string>();
 					select[r.GetString(0)][r.GetString(1)]=new List<string>{r.GetString(2),r.GetString(3)};
 					collect[r.GetString(4)][r.GetString(5)]=new List<string>();
 					select[r.GetString(6)][r.GetString(7)]=new List<string>{r.GetString(4),r.GetString(5)};
-					if (!newTables.Contains(r.GetString(2))) newTables.Add(r.GetString(2));
-					if (!newTables.Contains(r.GetString(4))) newTables.Add(r.GetString(4));
+					if (!tableset.Contains(r.GetString(2))) tableset.Add(r.GetString(2));
+					if (!tableset.Contains(r.GetString(4))) tableset.Add(r.GetString(4));
 				}
 				r.Close ();
 			}
-			newTables.Add(tables[0]);
-			tables = newTables;
+			tableset.Add(tables[0]);
+			tables = tableset;
 		}
 
 
