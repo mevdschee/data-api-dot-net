@@ -30,6 +30,13 @@ namespace DataApiDotNet_Complex
 		public List <Filter> And;
 	}
 
+	struct Relations
+	{
+		public List<string> Tables;
+		public Dictionary<string,Dictionary<string,List<string>>> Collect;
+		public Dictionary<string,Dictionary<string,List<string>>> Select;
+	}
+
 	class Config
 	{
 		public string Username;
@@ -405,6 +412,47 @@ namespace DataApiDotNet_Complex
 			result [0] = Convert.ToString ((number - 1) * size);
 			return result;
 		}
+
+		protected Relations FindRelations(string[] tables,string database,IDbConnection db) {
+			Relations relations = new Relations();
+			relations.Tables = new List<string>();
+			relations.Collect = new Dictionary<string,Dictionary<string,List<string>>>();
+			relations.Select = new Dictionary<string,Dictionary<string,List<string>>>();
+
+			List<string> tableList = new List<string> (tables);
+
+			while (tableList.Count>1) {
+				string table0 = tableList[0];
+				tableList.RemoveAt (0);
+				relations.Tables.Add(table0);
+
+				/*$result = $this->query($db,$this->queries['reflect_belongs_to'],array($table0,$tables,$database,$database));
+				while ($row = $this->fetch_row($result)) {
+					$collect[$row[0]][$row[1]]=array();
+					$select[$row[2]][$row[3]]=array($row[0],$row[1]);
+					if (!relations.Tables.Contains($row[0])) relations.Tables.Add($row[0]);
+				}
+				$result = $this->query($db,$this->queries['reflect_has_many'],array($tables,$table0,$database,$database));
+				while ($row = $this->fetch_row($result)) {
+					$collect[$row[2]][$row[3]]=array();
+					$select[$row[0]][$row[1]]=array($row[2],$row[3]);
+					if (!relations.Tables.Contains($row[2])) relations.Tables.Add($row[2]);
+				}
+				$result = $this->query($db,$this->queries['reflect_habtm'],array($database,$database,$database,$database,$table0,$tables));
+				while ($row = $this->fetch_row($result)) {
+					$collect[$row[2]][$row[3]]=array();
+					$select[$row[0]][$row[1]]=array($row[2],$row[3]);
+					$collect[$row[4]][$row[5]]=array();
+					$select[$row[6]][$row[7]]=array($row[4],$row[5]);
+					if (!relations.Tables.Contains($row[2])) relations.Tables.Add($row[2]);
+					if (!relations.Tables.Contains($row[4])) relations.Tables.Add($row[4]);
+				}*/
+			}
+			relations.Tables.Add(tableList[0]);
+
+			return relations;
+		}
+
 
 		protected Parameters GetParameters(Settings settings)
 		{
