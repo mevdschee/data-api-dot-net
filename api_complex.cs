@@ -30,12 +30,6 @@ namespace DataApiDotNet_Complex
 		public List <Filter> And;
 	}
 
-	struct Relations
-	{
-		public Dictionary<string,Dictionary<string,List<string>>> Collect;
-		public Dictionary<string,Dictionary<string,List<string>>> Select;
-	}
-
 	class Config
 	{
 		public string Username;
