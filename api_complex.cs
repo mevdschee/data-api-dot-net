@@ -275,7 +275,7 @@ namespace DataApiDotNet_Complex
 			string value = pos>0?request.Substring(0,pos):request;
 			request = pos>0?request.Substring(pos+1):string.Empty;
 			if (string.IsNullOrEmpty(characters)) return value;
-			return Regex.Replace(value, "/[^"+characters+"]/", "");        
+			return Regex.Replace(value, "[^"+characters+"]", "");        
 		}
 
 		protected string ParseGetParameter(NameValueCollection get, string name, string characters)
@@ -283,7 +283,7 @@ namespace DataApiDotNet_Complex
 			string value = get[name];
 			if (string.IsNullOrEmpty(value)) return value;
 			if (string.IsNullOrEmpty(characters)) return value;
-			return Regex.Replace(value, "/[^"+characters+"]/", "");        
+			return Regex.Replace(value, "[^"+characters+"]", "");        
 		}
 
 		protected string[] ParseGetParameterArray(NameValueCollection get, string name, string characters)
@@ -295,7 +295,7 @@ namespace DataApiDotNet_Complex
 			if (values == null) return null;
 			if (string.IsNullOrEmpty(characters)) return values;
 			for (int i = 0; i < values.Length; i++) {
-				values[i] = Regex.Replace(values[i], "/[^"+characters+"]/", "");
+				values[i] = Regex.Replace(values[i], "[^"+characters+"]", "");
 			}
 			return values;
 		}
@@ -395,7 +395,7 @@ namespace DataApiDotNet_Complex
 			FilterSet filterSet = new FilterSet();
 			List <Filter> result = ConvertFilters(filters);
 			if (result==null) return results;
-			if (satisfy.ToLower () == "any") filterSet.Or = result;
+			if (satisfy!=null && satisfy.ToLower () == "any") filterSet.Or = result;
 			else filterSet.And = result;
 			results.Add(tables[0],filterSet);
 			return results;
@@ -478,18 +478,21 @@ namespace DataApiDotNet_Complex
 
 		/*
 			// reflection
-			list($collect,$select) = $this->findRelations($tables,$database,$db);
-			parameters.Fields = $this->findFields($tables,$collect,$select,$columns,$database,$db);
-			
+			list($tables,$collect,$select) = $this->findRelations($tables,$database,$db);
+			$fields = $this->findFields($tables,$collect,$select,$columns,$database,$db);
+
 			// permissions
 			if ($table_authorizer) $this->applyTableAuthorizer($table_authorizer,$action,$database,$tables);
+			if ($record_filter) $this->applyRecordFilter($record_filter,$action,$database,$tables,$filters);
 			if ($column_authorizer) $this->applyColumnAuthorizer($column_authorizer,$action,$database,$fields);
+			if ($tenancy_function) $this->applyTenancyFunction($tenancy_function,$action,$database,$fields,$filters);
 
 			if ($post) {
 				// input
 				$context = $this->retrieveInput($post);
-				$input = $this->filterInputByColumns($context,$fields[$tables[0]]);
-				
+				$input = $this->filterInputByFields($context,$fields[$tables[0]]);
+
+				if ($tenancy_function) $this->applyInputTenancy($tenancy_function,$action,$database,$tables[0],$input,$fields[$tables[0]]);
 				if ($input_sanitizer) $this->applyInputSanitizer($input_sanitizer,$action,$database,$tables[0],$input,$fields[$tables[0]]);
 				if ($input_validator) $this->applyInputValidator($input_validator,$action,$database,$tables[0],$input,$fields[$tables[0]],$context);
 
@@ -498,7 +501,7 @@ namespace DataApiDotNet_Complex
 			
 		 */
 			//DEBUG
-			_context.Response.Write (parameters.Action+" - "+parameters.Tables[0]+" - "+parameters.Key+" - "+parameters.Callback);
+			_context.Response.Write (parameters.Action+" - "+parameters.Tables[0]+" - "+String.Join(",",parameters.Key)+" - "+parameters.Callback+" - "+String.Join(",",parameters.Page));
 
 
 			return parameters;
