@@ -449,6 +449,37 @@ namespace DataApiDotNet_Complex
 			tables = tableset;
 		}
 
+		protected Dictionary<string,List<string>> findFields(List<string> tables,string columns,string database,IDbConnection db) {
+			Dictionary<string,List<string>> fields = new Dictionary<string,List<string>>();
+			for (int i=0;i<tables.Count;i++) {
+				string table = tables[i];
+				fields[table] = FindTableFields(table,database,db);
+				if (i==0) fields[table] = FilterFieldsByColumns(fields[table],columns);
+			}
+			return fields;
+		}
+
+		protected List<string> FilterFieldsByColumns(List<string> fields,string columns) {
+			List<string> result = new List<string>(fields);
+			if (columns.Length>0) {
+				List<string> cols = new List<string>(columns.Split(new char[]{','}));
+				foreach ($fields as $key) {
+					if (!in_array($key, $columns)) {
+						unset($fields[$key]);
+					}
+				}
+			}
+			return $fields;
+		}
+
+		protected List<string> FindTableFields(string table,string database,IDbConnection db) {
+			$fields = array();
+			$result = $this->query($db,'SELECT * FROM "!" WHERE 1=2;',array($table));
+			foreach ($this->fetch_fields($result) as $field) {
+				$fields[$field->name] = $field;
+			}
+			return $fields;
+		}
 
 		protected Parameters GetParameters(Settings settings)
 		{
@@ -475,8 +506,9 @@ namespace DataApiDotNet_Complex
 
 			// reflection
 			FindRelations(ref parameters.Tables,ref parameters.Collect,ref parameters.Select,parameters.Database,parameters.Db);
-			/*
 			$fields = $this->findFields($tables,$collect,$select,$columns,$database,$db);
+
+			/*
 
 			// permissions
 			if ($table_authorizer) $this->applyTableAuthorizer($table_authorizer,$action,$database,$tables);
