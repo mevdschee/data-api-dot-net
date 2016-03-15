@@ -335,15 +335,15 @@ namespace DataApiDotNet_Complex
 			string blacklist = "[information_schema][mysql][sys][pg_catalog]";
 			if (blacklist.Contains("["+database.ToLower()+"]")) return new List<string>();
 			List<string> tableList = new List<string> ();
-			IDataReader reader = Query (_db.GetSql("reflect_table"), new string[]{ table, database });
+			IDataReader reader = _db.Query (_db.GetSql("reflect_table"), new string[]{ table, database });
 			while (reader.Read()) {
 				tableList.Add (reader.GetString (0));
 			}
 			reader.Close ();
 			if (tableList.Count==0) ExitWith404("entity");
 			if (action=="list") {
-				foreach (string table in include.Split(',')) {
-					IDataReader reader = Query (_db.GetSql("reflect_table"), new string[]{ table, database });
+				foreach (string table2 in include.Split(',')) {
+					reader = _db.Query (_db.GetSql("reflect_table"), new string[]{ table2, database });
 					while (reader.Read()) {
 						tableList.Add (reader.GetString (0));
 					}
@@ -482,11 +482,11 @@ namespace DataApiDotNet_Complex
 			tables = tableset;
 		}
 
-		protected Dictionary<string,List<string>> findFields(List<string> tables,string columns,string database,IDbConnection db) {
+		protected Dictionary<string,List<string>> FindFields(List<string> tables,string columns,string database) {
 			Dictionary<string,List<string>> fields = new Dictionary<string,List<string>>();
 			for (int i=0;i<tables.Count;i++) {
 				string table = tables[i];
-				fields[table] = FindTableFields(table,database,db);
+				fields[table] = FindTableFields(table,database);
 				if (i==0) fields[table] = FilterFieldsByColumns(fields[table],columns);
 			}
 			return fields;
@@ -505,13 +505,14 @@ namespace DataApiDotNet_Complex
 			return $fields;
 		}
 
-		protected List<string> FindTableFields(string table,string database,IDbConnection db) {
-			$fields = array();
-			$result = $this->query($db,'SELECT * FROM "!" WHERE 1=2;',array($table));
+		protected List<string> FindTableFields(string table,string database) {
+			List<string> fields = new List<string>();
+			IDataReader reader = _db.Query('SELECT * FROM "!" WHERE 1=2;', new string[]{ table });
 			foreach ($this->fetch_fields($result) as $field) {
 				$fields[$field->name] = $field;
 			}
-			return $fields;
+			reader.Close ();
+			return fields;
 		}
 
 		protected Parameters GetParameters(Settings settings)
@@ -538,8 +539,8 @@ namespace DataApiDotNet_Complex
 			parameters.Order     = ProcessOrderParameter(order);
 
 			// reflection
-			FindRelations(ref parameters.Tables,ref parameters.Collect,ref parameters.Select,parameters.Database,parameters.Db);
-			$fields = $this->findFields($tables,$collect,$select,$columns,$database,$db);
+			FindRelations(ref parameters.Tables,ref parameters.Collect,ref parameters.Select,parameters.Database);
+			parameters.Fields = FindFields(tables,collect,select,columns,parameters.Database);
 
 			/*
 
