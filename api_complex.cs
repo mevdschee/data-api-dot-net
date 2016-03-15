@@ -655,8 +655,7 @@ namespace DataApiDotNet_Complex
 				TableAuthorizer = config.TableAuthorizer,
 				ColumnAuthorizer = config.ColumnAuthorizer,
 				InputSanitizer = config.InputSanitizer,
-				InputValidator = config.InputValidator,
-				Db = config.Db
+				InputValidator = config.InputValidator
 			};
 
 		}
