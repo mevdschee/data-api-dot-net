@@ -32,6 +32,7 @@ namespace DataApiDotNet_Complex
 
 	class Config
 	{
+		public string DbEngine;
 		public string Username;
 		public string Password;
 		public string Database;
@@ -55,12 +56,31 @@ namespace DataApiDotNet_Complex
 		public System.IO.Stream Post;
 	}
 
-	class MySQL_CRUD_API: REST_CRUD_API
+	interface DatabaseInterface {
+		public string GetSql(string name);
+		public void Connect(string hostname,string username,string password,string database,string port,string socket,string charset);
+		public IDataReader Query(string sql,object[] parameters);
+		/*public function fetchAssoc($result);
+		public function fetchRow($result);
+		public function insertId($result);
+		public function affectedRows($result);
+		public void close($result);
+		public function fetchFields($result);
+		public function addLimitToSql($sql,$limit,$offset);*/
+		public string LikeEscape(string s);
+		/*public function isBinaryType($field);
+		public function base64Encode($string);*/
+		public string GetDefaultCharset();
+	}
+
+	class MySQL: DatabaseInterface
 	{
+		protected IDbConnection _db;
+		protected Dictionary<string,string> _queries;
 
 		// interfaces that the MySql libraries implement, namely IDbConnection, IDbCommand, IDataParameters,
 
-		public MySQL_CRUD_API(HttpContext context, Config config): base(context,config)
+		public MySQL()
 		{
 			_queries = new Dictionary<string,string>() {
 				{ "reflect_table", "SELECT " +
@@ -117,7 +137,12 @@ namespace DataApiDotNet_Complex
 			};
 		}
 
-		override protected IDbConnection ConnectDatabase(string hostname,string username,string password,string database,string port,string socket,string charset)
+		public string GetSql(string name)
+		{
+			return _queries.ContainsKey(name) ? _queries[name] : null;
+		}
+
+		public void Connect(string hostname,string username,string password,string database,string port,string socket,string charset)
 		{
 			MySqlConnection db=null;
 			string connectionString =
@@ -140,17 +165,17 @@ namespace DataApiDotNet_Complex
 			} catch (MySqlException ex) {
 				throw new Exception("Error setting ANSI quotes. " + ex.Message);
 			}
-			return db;
+			_db = db;
 		}
 
-		override protected IDataReader Query(IDbConnection db, string sql, object[] parameters)
+		public IDataReader Query(string sql, object[] parameters)
 		{
 			int i = 0;
 			List<object> parameterList = new List<object> (parameters.Length);
 			sql = Regex.Replace (sql, "\\!|\\?", delegate(Match match) {
 				object parameter = parameters [i++];
 				if (match.Value == "!") {
-					return Regex.Replace (parameter.ToString(), "[^a-zA-Z0-9\\-_=<>]", "");
+					return Regex.Replace (parameter.ToString(), "[^a-zA-Z0-9\\-_=<> ]", "");
 				}
 				/*if (is_array($parameter)) return '('.implode(',',array_map(function($v) use (&$db) {
 					return "'".mysqli_real_escape_string($db,$v)."'";
@@ -162,7 +187,7 @@ namespace DataApiDotNet_Complex
 				parameterList.Add (parameter);
 				return "@_" + (parameterList.Count - 1);
 			});
-			MySqlCommand command = new MySqlCommand (sql, (MySqlConnection)db);
+			MySqlCommand command = new MySqlCommand (sql, (MySqlConnection)_db);
 			for (i = 0; i < parameterList.Count; i++) {
 				command.Parameters.AddWithValue ("@_" + i, parameterList [i]);
 			}
@@ -171,11 +196,11 @@ namespace DataApiDotNet_Complex
 			return command.ExecuteReader ();
 		}
 
-		override protected string LikeEscape(string s) {
+		public string LikeEscape(string s) {
 			return s.Replace("%",@"\%").Replace("_",@"\_");
 		}
 
-		override protected string GetDefaultCharset()
+		public string GetDefaultCharset()
 		{
 			return "utf8";
 		}
@@ -209,9 +234,9 @@ namespace DataApiDotNet_Complex
 		}
 	}*/
 
-	abstract class REST_CRUD_API
+	abstract class PHP_CRUD_API
 	{
-		protected Dictionary<string,string> _queries;
+		protected DatabaseInterface _db;
 		protected Settings _settings;
 
 		protected HttpContext _context;
@@ -306,32 +331,37 @@ namespace DataApiDotNet_Complex
 			return null;
 		}
 
-		protected List<string> ProcessTablesParameter(string database, string tables, string action, IDbConnection db) {
+		protected List<string> ProcessTableAndIncludeParameter(string database, string table, string include, string action) {
 			string blacklist = "[information_schema][mysql][sys][pg_catalog]";
 			if (blacklist.Contains("["+database.ToLower()+"]")) return new List<string>();
-			string[] tableArray = tables.Split(',');
-			List<string> tableList = new List<string> (tableArray.Length);
-			foreach (string table in tableArray) {
-				IDataReader reader = Query (db, _queries ["reflect_table"], new string[]{ table, database });
-				while (reader.Read()) {
-					tableList.Add (reader.GetString (0));
-					if (action=="list") break;
-				}
-				reader.Close ();
+			List<string> tableList = new List<string> ();
+			IDataReader reader = Query (_db.GetSql("reflect_table"), new string[]{ table, database });
+			while (reader.Read()) {
+				tableList.Add (reader.GetString (0));
 			}
+			reader.Close ();
 			if (tableList.Count==0) ExitWith404("entity");
+			if (action=="list") {
+				foreach (string table in include.Split(',')) {
+					IDataReader reader = Query (_db.GetSql("reflect_table"), new string[]{ table, database });
+					while (reader.Read()) {
+						tableList.Add (reader.GetString (0));
+					}
+					reader.Close ();
+				}
+			}
 			return tableList;
 		}
 
-		protected string FindSinglePrimaryKey(List<string> tables, string database, IDbConnection db) {
+		protected string FindSinglePrimaryKey(List<string> tables, string database) {
 			return "id";
 		}
 
-		protected string[] ProcessKeyParameter(string key, List<string> tables, string database, IDbConnection db) {
+		protected string[] ProcessKeyParameter(string key, List<string> tables, string database) {
 			if (string.IsNullOrEmpty (key))	return null;
 			int count = 0;
 			string field = null;
-			IDataReader r = Query (db, _queries ["reflect_pk"], new string[]{ tables[0], database });
+			IDataReader r = Query (_db.GetSql("reflect_pk"), new string[]{ tables[0], database });
 			while (r.Read()) {
 				count++;
 				field = r.GetString (0);
@@ -366,6 +396,9 @@ namespace DataApiDotNet_Complex
 				case "ge": filter.Comparator = ">="; break;
 				case "gt": filter.Comparator = ">"; break;
 				case "in": filter.Comparator = "IN"; filter.Value = value.Split(','); break;
+				case "ni": filter.Comparator = "NOT IN"; filter.Value = value.Split(','); break;
+				case "is": filter.Comparator = "IS"; filter.Value = null; break;
+				case "no": filter.Comparator = "IS NOT"; filter.Value = null; break;
 			}
 			return filter;
 		}
@@ -406,7 +439,7 @@ namespace DataApiDotNet_Complex
 			return result;
 		}
 
-		protected void FindRelations(ref List<string> tables,ref Dictionary<string,Dictionary<string,List<string>>> collect,ref Dictionary<string,Dictionary<string,List<string>>> select,string database,IDbConnection db) {
+		protected void FindRelations(ref List<string> tables,ref Dictionary<string,Dictionary<string,List<string>>> collect,ref Dictionary<string,Dictionary<string,List<string>>> select,string database) {
 			collect = new Dictionary<string,Dictionary<string,List<string>>> ();
 			select = new Dictionary<string,Dictionary<string,List<string>>> ();
 			List<string> tableset = new List<string>();
@@ -418,7 +451,7 @@ namespace DataApiDotNet_Complex
 
 				IDataReader r;
 
-				r = Query(db,_queries["reflect_belongs_to"],new object[]{ table0, tables.ToArray(), database, database });
+				r = Query(_db.GetSql("reflect_belongs_to"),new object[]{ table0, tables.ToArray(), database, database });
 				while (r.Read()) {
 					collect[r.GetString(0)][r.GetString(1)]=new List<string>();
 					select[r.GetString(2)][r.GetString(3)]=new List<string>{r.GetString(0),r.GetString(1)};
@@ -426,7 +459,7 @@ namespace DataApiDotNet_Complex
 				}
 				r.Close ();
 
-				r = Query(db,_queries["reflect_has_many"],new object[]{ tables.ToArray(), table0, database, database });
+				r = Query(_db.GetSql("reflect_has_many"),new object[]{ tables.ToArray(), table0, database, database });
 				while (r.Read()) {
 					collect[r.GetString(2)][r.GetString(3)]=new List<string>();
 					select[r.GetString(0)][r.GetString(1)]=new List<string>{r.GetString(2),r.GetString(3)};
@@ -434,7 +467,7 @@ namespace DataApiDotNet_Complex
 				}
 				r.Close ();
 
-				r = Query(db,_queries["reflect_habtm"],new object[]{ database, database, database, database, table0, tables.ToArray() });
+				r = Query(_db.GetSql("reflect_habtm"),new object[]{ database, database, database, database, table0, tables.ToArray() });
 				while (r.Read()) {
 					collect[r.GetString(2)][r.GetString(3)]=new List<string>();
 					select[r.GetString(0)][r.GetString(1)]=new List<string>{r.GetString(2),r.GetString(3)};
@@ -485,21 +518,21 @@ namespace DataApiDotNet_Complex
 		{
 			Parameters parameters = new Parameters {};
 
-			string tables        = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9\\-_,");
-			string key           = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9\\-_,"); // auto-increment or uuid
+			string table         = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9\\-_");
+			string key           = ParseRequestParameter(ref settings.Request, "a-zA-Z0-9\\-_"); // auto-increment or uuid
 			parameters.Action    = MapMethodToAction(settings.Method,key);
+			string include       = ParseGetParameter(settings.Get, "include", "a-zA-Z0-9\\-_,");
 			parameters.Callback  = ParseGetParameter(settings.Get, "callback", "a-zA-Z0-9\\-_");
 			string page          = ParseGetParameter(settings.Get, "page", "0-9,");
 			string[] filters     = ParseGetParameterArray(settings.Get, "filter", null);
 			string satisfy       = ParseGetParameter(settings.Get, "satisfy", "a-z");
 			string columns       = ParseGetParameter(settings.Get, "columns", "a-zA-Z0-9\\-_,");
 			string order         = ParseGetParameter(settings.Get, "order", "a-zA-Z0-9\\-_,");
-			parameters.Transform = ParseGetParameter(settings.Get, "transform", "1");
+			parameters.Transform = ParseGetParameter(settings.Get, "transform", "t1");
 			parameters.Database  = settings.Database;
-			parameters.Db        = settings.Db;
 
-			parameters.Tables    = ProcessTablesParameter(parameters.Database,tables,parameters.Action,parameters.Db);
-			parameters.Key       = ProcessKeyParameter(key,parameters.Tables,parameters.Database,parameters.Db);
+			parameters.Tables    = ProcessTableAndIncludeParameter(parameters.Database,table,include,parameters.Action);
+			parameters.Key       = ProcessKeyParameter(key,parameters.Tables,parameters.Database);
 			parameters.Filters   = ProcessFiltersParameter(parameters.Tables,satisfy,filters);
 			parameters.Page      = ProcessPageParameter(page);
 			parameters.Order     = ProcessOrderParameter(order);
@@ -577,7 +610,7 @@ namespace DataApiDotNet_Complex
 			}
 		}
 
-		public REST_CRUD_API(HttpContext context, Config config)
+		public PHP_CRUD_API(HttpContext context, Config config)
 		{
 			_context = context;
 
@@ -594,9 +627,6 @@ namespace DataApiDotNet_Complex
 			if (config.Post == null) {
 				config.Post = context.Request.InputStream;
 			}
-			if (config.Charset == null) {
-				config.Charset = this.GetDefaultCharset();
-			}
 
 			// connect
 			String request = config.Request.Trim ('/');
@@ -605,9 +635,14 @@ namespace DataApiDotNet_Complex
 				config.Database = ParseRequestParameter(ref request, "a-zA-Z0-9\\-_");
 			}
 			if (config.Db == null) {
-				config.Db = ConnectDatabase(config.Hostname,config.Username,config.Password,config.Database,config.Port,config.Socket,config.Socket);
+				config.Db = Activator.CreateInstance (Type.GetType ("DataApiDotNet_Complex."+config.DbEngine));
+				if (config.Charset == null) {
+					config.Charset = this.GetDefaultCharset();
+				}
+				ConnectDatabase(config.Hostname,config.Username,config.Password,config.Database,config.Port,config.Socket,config.Socket);
 			}
 
+			_db = config.Db;
 			_settings = new Settings{
 				Method = config.Method,
 				Request = request,
@@ -655,7 +690,7 @@ namespace DataApiDotNet_Complex
 	{
 		public void ProcessRequest (HttpContext context)
 		{
-			MySQL_CRUD_API api = new MySQL_CRUD_API (context,new Config{
+			PHP_CRUD_API api = new PHP_CRUD_API (context,new Config{
 				Hostname = "localhost",
 				Username = "root",
 				Password = "",
