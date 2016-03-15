@@ -615,6 +615,9 @@ namespace DataApiDotNet_Complex
 			_context = context;
 
 			// defaults
+			if (config.DbEngine == null) {
+				config.DbEngine = "MySQL";
+			}
 			if (config.Method == null) {
 				config.Method = context.Request.HttpMethod;
 			}
