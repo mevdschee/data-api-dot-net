@@ -57,9 +57,9 @@ namespace DataApiDotNet_Complex
 	}
 
 	interface DatabaseInterface {
-		public string GetSql(string name);
-		public void Connect(string hostname,string username,string password,string database,string port,string socket,string charset);
-		public IDataReader Query(string sql,object[] parameters);
+		string GetSql(string name);
+		void Connect(string hostname,string username,string password,string database,string port,string socket,string charset);
+		IDataReader Query(string sql,object[] parameters);
 		/*public function fetchAssoc($result);
 		public function fetchRow($result);
 		public function insertId($result);
@@ -67,10 +67,10 @@ namespace DataApiDotNet_Complex
 		public void close($result);
 		public function fetchFields($result);
 		public function addLimitToSql($sql,$limit,$offset);*/
-		public string LikeEscape(string s);
+		string LikeEscape(string s);
 		/*public function isBinaryType($field);
 		public function base64Encode($string);*/
-		public string GetDefaultCharset();
+		string GetDefaultCharset();
 	}
 
 	class MySQL: DatabaseInterface
