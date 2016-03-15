@@ -49,27 +49,28 @@ namespace DataApiDotNet_Complex
 		public InputSanitizerDelegate InputSanitizer;
 		public InputValidatorDelegate InputValidator;
 		// dependencies (added for unit testing):
-		public IDbConnection Db;
+		public DatabaseInterface Db;
 		public string Method;
 		public string Request;
 		public NameValueCollection Get;
 		public System.IO.Stream Post;
 	}
 
-	interface DatabaseInterface {
+	interface DatabaseInterface
+	{
 		string GetSql(string name);
 		void Connect(string hostname,string username,string password,string database,string port,string socket,string charset);
 		IDataReader Query(string sql,object[] parameters);
-		/*public function fetchAssoc($result);
-		public function fetchRow($result);
-		public function insertId($result);
-		public function affectedRows($result);
-		public void close($result);
-		public function fetchFields($result);
-		public function addLimitToSql($sql,$limit,$offset);*/
+		//function fetchAssoc($result);
+		//function fetchRow($result);
+		//function insertId($result);
+		//function affectedRows($result);
+		bool Close(IDataReader reader);
+		List<Dictionary<string,string>> FetchFields(IDataReader reader);
+		//function addLimitToSql($sql,$limit,$offset);
 		string LikeEscape(string s);
-		/*public function isBinaryType($field);
-		public function base64Encode($string);*/
+		//function isBinaryType($field);
+		//function base64Encode($string);
 		string GetDefaultCharset();
 	}
 
@@ -150,7 +151,8 @@ namespace DataApiDotNet_Complex
 				"Database=" + database + ";" +
 				"User ID=" + username + ";" +
 				"Password=" + password + ";" +
-				"Pooling=true; CharSet=utf8;";
+				"CharSet=" + charset + ";" +
+				"Pooling=true";
 			try {
 				db = new MySqlConnection(connectionString);
 				db.Open();
@@ -196,7 +198,30 @@ namespace DataApiDotNet_Complex
 			return command.ExecuteReader ();
 		}
 
-		public string LikeEscape(string s) {
+		public bool Close(IDataReader reader)
+		{
+			reader.Close ();
+			return true;
+		}
+
+		public List<Dictionary<string,string>> FetchFields(IDataReader reader)
+		{
+			List<Dictionary<string,string>> fields = new List<Dictionary<string,string>>();
+			DataTable schema = reader.GetSchemaTable();
+			foreach (DataRow row in schema.Rows)
+			{
+				Dictionary<string,string> field = new Dictionary<string,string>();
+				foreach (DataColumn column in schema.Columns)
+				{
+					field[column.ColumnName]=row[column].ToString();
+				}
+				fields.Add(field);
+			}
+			return fields;
+		}
+
+		public string LikeEscape(string s)
+		{
 			return s.Replace("%",@"\%").Replace("_",@"\_");
 		}
 
@@ -234,7 +259,7 @@ namespace DataApiDotNet_Complex
 		}
 	}*/
 
-	abstract class PHP_CRUD_API
+	class PHP_CRUD_API
 	{
 		protected DatabaseInterface _db;
 		protected Settings _settings;
@@ -252,7 +277,6 @@ namespace DataApiDotNet_Complex
 			public ColumnAuthorizerDelegate ColumnAuthorizer;
 			public InputSanitizerDelegate InputSanitizer;
 			public InputValidatorDelegate InputValidator;
-			public IDbConnection Db;
 		}
 
 		protected class Parameters
@@ -264,10 +288,9 @@ namespace DataApiDotNet_Complex
 			public string Callback;
 			public string[] Page;
 			public Dictionary<string, FilterSet> Filters;
-			public string Fields;
+			public Dictionary<string,Dictionary<string,Dictionary<string,string>>> Fields;
 			public string[] Order;
 			public string Transform;
-			public IDbConnection Db;
 			public string Input;
 			public Dictionary<string,Dictionary<string,List<string>>> Collect;
 			public Dictionary<string,Dictionary<string,List<string>>> Select;
@@ -332,14 +355,14 @@ namespace DataApiDotNet_Complex
 		}
 
 		protected List<string> ProcessTableAndIncludeParameter(string database, string table, string include, string action) {
-			string blacklist = "[information_schema][mysql][sys][pg_catalog]";
-			if (blacklist.Contains("["+database.ToLower()+"]")) return new List<string>();
+			List<string> blacklist = new List<string>{ "information_schema", "mysql", "sys", "pg_catalog" };
+			if (blacklist.Contains(database.ToLower())) return new List<string>();
 			List<string> tableList = new List<string> ();
 			IDataReader reader = _db.Query (_db.GetSql("reflect_table"), new string[]{ table, database });
 			while (reader.Read()) {
 				tableList.Add (reader.GetString (0));
 			}
-			reader.Close ();
+			_db.Close (reader);
 			if (tableList.Count==0) ExitWith404("entity");
 			if (action=="list") {
 				foreach (string table2 in include.Split(',')) {
@@ -347,7 +370,7 @@ namespace DataApiDotNet_Complex
 					while (reader.Read()) {
 						tableList.Add (reader.GetString (0));
 					}
-					reader.Close ();
+					_db.Close (reader);
 				}
 			}
 			return tableList;
@@ -361,12 +384,12 @@ namespace DataApiDotNet_Complex
 			if (string.IsNullOrEmpty (key))	return null;
 			int count = 0;
 			string field = null;
-			IDataReader r = Query (_db.GetSql("reflect_pk"), new string[]{ tables[0], database });
+			IDataReader r = _db.Query (_db.GetSql("reflect_pk"), new string[]{ tables[0], database });
 			while (r.Read()) {
 				count++;
 				field = r.GetString (0);
 			}
-			r.Close ();
+			_db.Close (r);
 			if (count!=1 || field==null) ExitWith404("1pk");
 			return new string[]{ key, field };
 		}
@@ -386,9 +409,9 @@ namespace DataApiDotNet_Complex
 			filter.Comparator = null;
 			filter.Value = value;
 			switch (comparator.ToLower()) {
-				case "cs": filter.Comparator = "LIKE"; filter.Value = '%'+LikeEscape(value)+'%'; break;
-				case "sw": filter.Comparator = "LIKE"; filter.Value = LikeEscape(value)+'%'; break;
-				case "ew": filter.Comparator = "LIKE"; filter.Value = '%'+LikeEscape(value); break;
+				case "cs": filter.Comparator = "LIKE"; filter.Value = '%'+_db.LikeEscape(value)+'%'; break;
+				case "sw": filter.Comparator = "LIKE"; filter.Value = _db.LikeEscape(value)+'%'; break;
+				case "ew": filter.Comparator = "LIKE"; filter.Value = '%'+_db.LikeEscape(value); break;
 				case "eq": filter.Comparator = "="; break;
 				case "ne": filter.Comparator = "<>"; break;
 				case "lt": filter.Comparator = "<"; break;
@@ -451,23 +474,23 @@ namespace DataApiDotNet_Complex
 
 				IDataReader r;
 
-				r = Query(_db.GetSql("reflect_belongs_to"),new object[]{ table0, tables.ToArray(), database, database });
+				r = _db.Query(_db.GetSql("reflect_belongs_to"),new object[]{ table0, tables.ToArray(), database, database });
 				while (r.Read()) {
 					collect[r.GetString(0)][r.GetString(1)]=new List<string>();
 					select[r.GetString(2)][r.GetString(3)]=new List<string>{r.GetString(0),r.GetString(1)};
 					if (!tableset.Contains(r.GetString(0))) tableset.Add(r.GetString(0));
 				}
-				r.Close ();
+				_db.Close (r);
 
-				r = Query(_db.GetSql("reflect_has_many"),new object[]{ tables.ToArray(), table0, database, database });
+				r = _db.Query(_db.GetSql("reflect_has_many"),new object[]{ tables.ToArray(), table0, database, database });
 				while (r.Read()) {
 					collect[r.GetString(2)][r.GetString(3)]=new List<string>();
 					select[r.GetString(0)][r.GetString(1)]=new List<string>{r.GetString(2),r.GetString(3)};
 					if (!tableset.Contains(r.GetString(2))) tableset.Add(r.GetString(2));
 				}
-				r.Close ();
+				_db.Close (r);
 
-				r = Query(_db.GetSql("reflect_habtm"),new object[]{ database, database, database, database, table0, tables.ToArray() });
+				r = _db.Query(_db.GetSql("reflect_habtm"),new object[]{ database, database, database, database, table0, tables.ToArray() });
 				while (r.Read()) {
 					collect[r.GetString(2)][r.GetString(3)]=new List<string>();
 					select[r.GetString(0)][r.GetString(1)]=new List<string>{r.GetString(2),r.GetString(3)};
@@ -476,14 +499,14 @@ namespace DataApiDotNet_Complex
 					if (!tableset.Contains(r.GetString(2))) tableset.Add(r.GetString(2));
 					if (!tableset.Contains(r.GetString(4))) tableset.Add(r.GetString(4));
 				}
-				r.Close ();
+				_db.Close (r);
 			}
 			tableset.Add(tables[0]);
 			tables = tableset;
 		}
 
-		protected Dictionary<string,List<string>> FindFields(List<string> tables,string columns,string database) {
-			Dictionary<string,List<string>> fields = new Dictionary<string,List<string>>();
+		protected Dictionary<string,Dictionary<string,Dictionary<string,string>>> FindFields(List<string> tables,string columns,string database) {
+			Dictionary<string,Dictionary<string,Dictionary<string,string>>> fields = new Dictionary<string,Dictionary<string,Dictionary<string,string>>>();
 			for (int i=0;i<tables.Count;i++) {
 				string table = tables[i];
 				fields[table] = FindTableFields(table,database);
@@ -492,26 +515,27 @@ namespace DataApiDotNet_Complex
 			return fields;
 		}
 
-		protected List<string> FilterFieldsByColumns(List<string> fields,string columns) {
-			List<string> result = new List<string>(fields);
+		protected Dictionary<string,Dictionary<string,string>> FilterFieldsByColumns(Dictionary<string,Dictionary<string,string>> fields,string columns) {
+			Dictionary<string,Dictionary<string,string>> result = new Dictionary<string,Dictionary<string,string>>(fields);
 			if (columns.Length>0) {
 				List<string> cols = new List<string>(columns.Split(new char[]{','}));
-				foreach ($fields as $key) {
-					if (!in_array($key, $columns)) {
-						unset($fields[$key]);
+				foreach (KeyValuePair<string,Dictionary<string,string>> kv in fields) {
+					if (!cols.Contains(kv.Key)) {
+						result.Remove(kv.Key);
 					}
 				}
 			}
-			return $fields;
+			return result;
 		}
 
-		protected List<string> FindTableFields(string table,string database) {
-			List<string> fields = new List<string>();
-			IDataReader reader = _db.Query('SELECT * FROM "!" WHERE 1=2;', new string[]{ table });
-			foreach ($this->fetch_fields($result) as $field) {
-				$fields[$field->name] = $field;
+		protected Dictionary<string,Dictionary<string,string>> FindTableFields(string table,string database) {
+			Dictionary<string,Dictionary<string,string>> fields = new Dictionary<string,Dictionary<string,string>>();
+			IDataReader reader = _db.Query("SELECT * FROM \"!\" WHERE 1=2;", new string[]{ table });
+			foreach (Dictionary<string,string> field in _db.FetchFields(reader))
+			{
+				fields [field ["ColumnName"]] = field;
 			}
-			reader.Close ();
+			_db.Close (reader);
 			return fields;
 		}
 
@@ -540,7 +564,7 @@ namespace DataApiDotNet_Complex
 
 			// reflection
 			FindRelations(ref parameters.Tables,ref parameters.Collect,ref parameters.Select,parameters.Database);
-			parameters.Fields = FindFields(tables,collect,select,columns,parameters.Database);
+			parameters.Fields = FindFields(parameters.Tables,columns,parameters.Database);
 
 			/*
 
@@ -639,11 +663,11 @@ namespace DataApiDotNet_Complex
 				config.Database = ParseRequestParameter(ref request, "a-zA-Z0-9\\-_");
 			}
 			if (config.Db == null) {
-				config.Db = Activator.CreateInstance (Type.GetType ("DataApiDotNet_Complex."+config.DbEngine));
+				config.Db = (DatabaseInterface)Activator.CreateInstance (Type.GetType ("DataApiDotNet_Complex."+config.DbEngine));
 				if (config.Charset == null) {
-					config.Charset = this.GetDefaultCharset();
+					config.Charset = config.Db.GetDefaultCharset();
 				}
-				ConnectDatabase(config.Hostname,config.Username,config.Password,config.Database,config.Port,config.Socket,config.Socket);
+				config.Db.Connect(config.Hostname,config.Username,config.Password,config.Database,config.Port,config.Socket,config.Charset);
 			}
 
 			_db = config.Db;
@@ -676,16 +700,6 @@ namespace DataApiDotNet_Complex
 				case "headers": HeadersCommand(parameters); break;
 			}
 		}
-
-		// abstract 
-
-		abstract protected IDbConnection ConnectDatabase (string hostname, string username, string password, string database, string port, string socket, string charset);
-
-		abstract protected IDataReader Query (IDbConnection db, string sql, object[] parameters);
-
-		abstract protected string LikeEscape(string s);
-
-		abstract protected string GetDefaultCharset ();
 
 	}
 
