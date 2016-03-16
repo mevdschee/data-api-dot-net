@@ -462,6 +462,30 @@ namespace DataApiDotNet_Complex
 			return result;
 		}
 
+		protected Dictionary<string,object> RetrieveObject(string[] key,Dictionary<string,Dictionary<string,Dictionary<string,string>>> fields,Dictionary<string,FilterSet> filters,List<string> tables) {
+			if (key==null) return null;
+			string table = tables[0];
+			string sql = "SELECT ";
+			sql += "\""+String.Join("\",\"",fields[table].Keys)+"\"";
+			sql += " FROM \"!\"";
+			string[] parameters = new string[]{ table };
+			if (!isset(filters[table])) filters[table] = array();
+			if (!isset(filters[table]['or'])) filters[table]['or'] = array();
+			$filters[$table]['or'][] = array($key[1],'=',$key[0]);
+			$this->addWhereFromFilters($filters[$table],$sql,parameters);
+			Dictionary<string,object> obj  = null;
+			if (reader = _db.Query(sql,parameters)) {
+				obj = _db.FetchAssoc(reader);
+				foreach ($fields[$table] as $field) {
+					if (_db.IsBinaryType($field) && obj[$field->name]) {
+						obj[$field->name] = _db.Base64Encode(obj[$field->name]);
+					}
+				}
+				_db.Close(reader);
+			}
+			return obj;
+		}
+
 		protected void FindRelations(ref List<string> tables,ref Dictionary<string,Dictionary<string,List<string>>> collect,ref Dictionary<string,Dictionary<string,List<string>>> select,string database) {
 			collect = new Dictionary<string,Dictionary<string,List<string>>> ();
 			select = new Dictionary<string,Dictionary<string,List<string>>> ();
@@ -595,7 +619,11 @@ namespace DataApiDotNet_Complex
 
 		protected void ReadCommand(Parameters parameters)
 		{
-
+			Dictionary<string,object> obj = RetrieveObject(parameters.Key,parameters.Fields,parameters.Filters,parameters.Tables);
+			if (obj==null) ExitWith404("object");
+			$this->startOutput($callback);
+			echo json_encode(obj);
+			$this->endOutput($callback);
 		}
 
 		protected void CreateCommand(Parameters parameters)
