@@ -17,6 +17,12 @@ namespace DataApiDotNet_Complex
 	delegate bool InputSanitizerDelegate   (string action, string database, string table, string column, string type, object value);
 	delegate bool InputValidatorDelegate   (string action, string database, string table, string column, string type, object value, NameValueCollection context);
 
+	struct Field
+	{
+		public string Name;
+		public string Type;
+	}
+
 	struct Filter
 	{
 		public string Field;
@@ -66,7 +72,7 @@ namespace DataApiDotNet_Complex
 		//function insertId($result);
 		//function affectedRows($result);
 		bool Close(IDataReader reader);
-		List<Dictionary<string,string>> FetchFields(IDataReader reader);
+		List<Field> FetchFields(IDataReader reader);
 		//function addLimitToSql($sql,$limit,$offset);
 		string LikeEscape(string s);
 		//function isBinaryType($field);
@@ -204,17 +210,15 @@ namespace DataApiDotNet_Complex
 			return true;
 		}
 
-		public List<Dictionary<string,string>> FetchFields(IDataReader reader)
+		public List<Field> FetchFields(IDataReader reader)
 		{
-			List<Dictionary<string,string>> fields = new List<Dictionary<string,string>>();
+			List<Field> fields = new List<Field>();
 			DataTable schema = reader.GetSchemaTable();
 			foreach (DataRow row in schema.Rows)
 			{
-				Dictionary<string,string> field = new Dictionary<string,string>();
-				foreach (DataColumn column in schema.Columns)
-				{
-					field[column.ColumnName]=row[column].ToString();
-				}
+				Field field = new Field();
+				field.Name = row ["ColumnName"];
+				field.Type = row ["DataType"].ToString();
 				fields.Add(field);
 			}
 			return fields;
@@ -288,7 +292,7 @@ namespace DataApiDotNet_Complex
 			public string Callback;
 			public string[] Page;
 			public Dictionary<string, FilterSet> Filters;
-			public Dictionary<string,Dictionary<string,Dictionary<string,string>>> Fields;
+			public Dictionary<string,Dictionary<string,Field>> Fields;
 			public string[] Order;
 			public string Transform;
 			public string Input;
@@ -462,17 +466,17 @@ namespace DataApiDotNet_Complex
 			return result;
 		}
 
-		protected Dictionary<string,object> RetrieveObject(string[] key,Dictionary<string,Dictionary<string,Dictionary<string,string>>> fields,Dictionary<string,FilterSet> filters,List<string> tables) {
+		protected Dictionary<string,object> RetrieveObject(string[] key,Dictionary<string,Dictionary<string,Field>> fields,Dictionary<string,FilterSet> filters,List<string> tables) {
 			if (key==null) return null;
 			string table = tables[0];
 			string sql = "SELECT ";
 			sql += "\""+String.Join("\",\"",fields[table].Keys)+"\"";
 			sql += " FROM \"!\"";
 			string[] parameters = new string[]{ table };
-			if (!isset(filters[table])) filters[table] = array();
-			if (!isset(filters[table]['or'])) filters[table]['or'] = array();
-			$filters[$table]['or'][] = array($key[1],'=',$key[0]);
-			$this->addWhereFromFilters($filters[$table],$sql,parameters);
+			if (!filters.ContainsKey(table)) filters[table] = new FilterSet();
+			if (filters [table].Or == null)	filters [table].Or = new List<Filter>();
+			filters[table].Or.Add(new Filter(){ Field = key[0], Comparator = "=", Value = key[1] };
+			AddWhereFromFilters(filters[table],ref sql,ref parameters);
 			Dictionary<string,object> obj  = null;
 			if (reader = _db.Query(sql,parameters)) {
 				obj = _db.FetchAssoc(reader);
@@ -529,8 +533,8 @@ namespace DataApiDotNet_Complex
 			tables = tableset;
 		}
 
-		protected Dictionary<string,Dictionary<string,Dictionary<string,string>>> FindFields(List<string> tables,string columns,string database) {
-			Dictionary<string,Dictionary<string,Dictionary<string,string>>> fields = new Dictionary<string,Dictionary<string,Dictionary<string,string>>>();
+		protected Dictionary<string,Dictionary<string,Field>> FindFields(List<string> tables,string columns,string database) {
+			Dictionary<string,Dictionary<string,Field>> fields = new Dictionary<string,Dictionary<string,Field>>();
 			for (int i=0;i<tables.Count;i++) {
 				string table = tables[i];
 				fields[table] = FindTableFields(table,database);
@@ -539,11 +543,11 @@ namespace DataApiDotNet_Complex
 			return fields;
 		}
 
-		protected Dictionary<string,Dictionary<string,string>> FilterFieldsByColumns(Dictionary<string,Dictionary<string,string>> fields,string columns) {
-			Dictionary<string,Dictionary<string,string>> result = new Dictionary<string,Dictionary<string,string>>(fields);
+		protected Dictionary<string,Field> FilterFieldsByColumns(Dictionary<string,Field> fields,string columns) {
+			Dictionary<string,Field> result = new Dictionary<string,Field>(fields);
 			if (columns.Length>0) {
 				List<string> cols = new List<string>(columns.Split(new char[]{','}));
-				foreach (KeyValuePair<string,Dictionary<string,string>> kv in fields) {
+				foreach (KeyValuePair<string,Field> kv in fields) {
 					if (!cols.Contains(kv.Key)) {
 						result.Remove(kv.Key);
 					}
@@ -552,10 +556,10 @@ namespace DataApiDotNet_Complex
 			return result;
 		}
 
-		protected Dictionary<string,Dictionary<string,string>> FindTableFields(string table,string database) {
-			Dictionary<string,Dictionary<string,string>> fields = new Dictionary<string,Dictionary<string,string>>();
+		protected Dictionary<string,Field> FindTableFields(string table,string database) {
+			Dictionary<string,Field> fields = new Dictionary<string,Field>();
 			IDataReader reader = _db.Query("SELECT * FROM \"!\" WHERE 1=2;", new string[]{ table });
-			foreach (Dictionary<string,string> field in _db.FetchFields(reader))
+			foreach (Field field in _db.FetchFields(reader))
 			{
 				fields [field ["ColumnName"]] = field;
 			}
@@ -615,6 +619,32 @@ namespace DataApiDotNet_Complex
 			_context.Response.Write (parameters.Action+" - "+parameters.Tables[0]+" - "+String.Join(",",parameters.Key)+" - "+parameters.Callback+" - "+String.Join(",",parameters.Page));
 
 			return parameters;
+		}
+
+		protected AddWhereFromFilters(FilterSet filters,ref string sql,ref object[] parameters) {
+			bool first = true;
+			if (filters.Or != null) {
+				first = false;
+				sql += " WHERE (";
+				foreach (filters.Or as i=>filter) {
+					sql += i==0?"":" OR ";
+					sql += "\"!\" ! ?";
+					parameters[] = filter[0];
+					parameters[] = filter[1];
+					parameters[] = filter[2];
+				}
+				sql += ")";
+			}
+			if (filters.And != null) {
+				foreach (filters.And as i=>filter) {
+					sql += first?" WHERE ":" AND ";
+					sql += "\"!\" ! ?";
+					parameters[] = filter[0];
+					parameters[] = filter[1];
+					parameters[] = filter[2];
+					first = false;
+				}
+			}
 		}
 
 		protected void ReadCommand(Parameters parameters)
