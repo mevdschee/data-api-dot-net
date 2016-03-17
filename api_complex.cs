@@ -67,7 +67,7 @@ namespace DataApiDotNet_Complex
 		string GetSql(string name);
 		void Connect(string hostname,string username,string password,string database,string port,string socket,string charset);
 		IDataReader Query(string sql,object[] parameters);
-		//function fetchAssoc($result);
+		Dictionary<string,object> FetchAssoc(IDataReader reader);
 		//function fetchRow($result);
 		//function insertId($result);
 		//function affectedRows($result);
@@ -83,12 +83,14 @@ namespace DataApiDotNet_Complex
 	class MySQL: DatabaseInterface
 	{
 		protected IDbConnection _db;
+		protected HttpContext _context;
 		protected Dictionary<string,string> _queries;
 
 		// interfaces that the MySql libraries implement, namely IDbConnection, IDbCommand, IDataParameters,
 
-		public MySQL()
+		public MySQL(HttpContext context)
 		{
+			_context = context;
 			_queries = new Dictionary<string,string>() {
 				{ "reflect_table", "SELECT " +
 						"\"TABLE_NAME\" " +
@@ -204,6 +206,15 @@ namespace DataApiDotNet_Complex
 			return command.ExecuteReader ();
 		}
 
+		public Dictionary<string,object> FetchAssoc(IDataReader reader)
+		{
+			Dictionary<string, object> obj = new Dictionary<string, object>();
+			for (int i=0;i<reader.FieldCount;i++) {
+				obj.Add(reader.GetName(i), reader.GetValue(i));
+			}
+			return obj;
+		}
+
 		public bool Close(IDataReader reader)
 		{
 			reader.Close ();
@@ -217,7 +228,7 @@ namespace DataApiDotNet_Complex
 			foreach (DataRow row in schema.Rows)
 			{
 				Field field = new Field();
-				field.Name = row ["ColumnName"];
+				field.Name = row ["ColumnName"].ToString();
 				field.Type = row ["DataType"].ToString();
 				fields.Add(field);
 			}
@@ -384,6 +395,26 @@ namespace DataApiDotNet_Complex
 			return "id";
 		}
 
+
+		protected void StartOutput(string callback) {
+			if (callback!=null) {
+				if (_context != null) {
+					_context.Response.AddHeader("Content-Type","application/javascript");
+				}
+				_context.Response.Write(callback+"(");
+			} else {
+				if (_context != null) {
+					_context.Response.AddHeader("Content-Type","application/json");
+				}
+			}
+		}
+
+		protected void EndOutput(string callback) {
+			if (callback!=null) {
+				_context.Response.Write(");");
+			}
+		}
+
 		protected string[] ProcessKeyParameter(string key, List<string> tables, string database) {
 			if (string.IsNullOrEmpty (key))	return null;
 			int count = 0;
@@ -431,7 +462,7 @@ namespace DataApiDotNet_Complex
 		}
 
 		protected List <Filter> ConvertFilters(string[] filters) {
-			List <Filter> results = new List<Filter>(filters.Length);
+			List <Filter> results = new List<Filter>();
 			if (filters!=null) {
 				for (int i=0;i<filters.Length;i++) {
 					string[] filter = filters[i].Split(new char[]{','},3);
@@ -472,18 +503,23 @@ namespace DataApiDotNet_Complex
 			string sql = "SELECT ";
 			sql += "\""+String.Join("\",\"",fields[table].Keys)+"\"";
 			sql += " FROM \"!\"";
-			string[] parameters = new string[]{ table };
+			object[] parameters = new object[]{ (object)table };
 			if (!filters.ContainsKey(table)) filters[table] = new FilterSet();
-			if (filters [table].Or == null)	filters [table].Or = new List<Filter>();
-			filters[table].Or.Add(new Filter(){ Field = key[0], Comparator = "=", Value = key[1] };
+			if (filters [table].Or == null) {
+				FilterSet f = filters [table];
+				f.Or = new List<Filter>();
+				filters [table] = f;
+			}
+			filters[table].Or.Add(new Filter(){ Field = key[1], Comparator = "=", Value = key[0] });
 			AddWhereFromFilters(filters[table],ref sql,ref parameters);
-			Dictionary<string,object> obj  = null;
-			if (reader = _db.Query(sql,parameters)) {
+			Dictionary<string,object> obj = null;
+			IDataReader reader = _db.Query(sql,parameters);
+			if (reader.Read()) {
 				obj = _db.FetchAssoc(reader);
-				foreach ($fields[$table] as $field) {
-					if (_db.IsBinaryType($field) && obj[$field->name]) {
-						obj[$field->name] = _db.Base64Encode(obj[$field->name]);
-					}
+				foreach (Field field in fields[table].Values) {
+					//if (_db.IsBinaryType(field) && obj.ContainsKey(field.Name)) {
+					//	obj[field.Name] = _db.Base64Encode(obj[field.Name]);
+					//}
 				}
 				_db.Close(reader);
 			}
@@ -545,7 +581,7 @@ namespace DataApiDotNet_Complex
 
 		protected Dictionary<string,Field> FilterFieldsByColumns(Dictionary<string,Field> fields,string columns) {
 			Dictionary<string,Field> result = new Dictionary<string,Field>(fields);
-			if (columns.Length>0) {
+			if (columns!=null) {
 				List<string> cols = new List<string>(columns.Split(new char[]{','}));
 				foreach (KeyValuePair<string,Field> kv in fields) {
 					if (!cols.Contains(kv.Key)) {
@@ -561,7 +597,7 @@ namespace DataApiDotNet_Complex
 			IDataReader reader = _db.Query("SELECT * FROM \"!\" WHERE 1=2;", new string[]{ table });
 			foreach (Field field in _db.FetchFields(reader))
 			{
-				fields [field ["ColumnName"]] = field;
+				fields [field.Name] = field;
 			}
 			_db.Close (reader);
 			return fields;
@@ -616,44 +652,48 @@ namespace DataApiDotNet_Complex
 			
 		 */
 			//DEBUG
-			_context.Response.Write (parameters.Action+" - "+parameters.Tables[0]+" - "+String.Join(",",parameters.Key)+" - "+parameters.Callback+" - "+String.Join(",",parameters.Page));
+			//_context.Response.Write (parameters.Action+" - "+parameters.Tables[0]+" - "+String.Join(",",parameters.Key)+" - "+parameters.Callback+" - "+String.Join(",",parameters.Page));
 
 			return parameters;
 		}
 
-		protected AddWhereFromFilters(FilterSet filters,ref string sql,ref object[] parameters) {
+		protected void AddWhereFromFilters(FilterSet filters,ref string sql,ref object[] parameters) {
 			bool first = true;
+			List<object> parameterList = new List<object>(parameters);
 			if (filters.Or != null) {
 				first = false;
 				sql += " WHERE (";
-				foreach (filters.Or as i=>filter) {
+				for (int i=0;i<filters.Or.Count;i++) {
+					Filter filter = filters.Or[i];
 					sql += i==0?"":" OR ";
 					sql += "\"!\" ! ?";
-					parameters[] = filter[0];
-					parameters[] = filter[1];
-					parameters[] = filter[2];
+					parameterList.Add(filter.Field);
+					parameterList.Add(filter.Comparator);
+					parameterList.Add(filter.Value);
 				}
 				sql += ")";
 			}
 			if (filters.And != null) {
-				foreach (filters.And as i=>filter) {
+				for (int i=0;i<filters.And.Count;i++) {
+					Filter filter = filters.And[i];
 					sql += first?" WHERE ":" AND ";
 					sql += "\"!\" ! ?";
-					parameters[] = filter[0];
-					parameters[] = filter[1];
-					parameters[] = filter[2];
+					parameterList.Add(filter.Field);
+					parameterList.Add(filter.Comparator);
+					parameterList.Add(filter.Value);
 					first = false;
 				}
 			}
+			parameters = parameterList.ToArray();
 		}
 
 		protected void ReadCommand(Parameters parameters)
 		{
 			Dictionary<string,object> obj = RetrieveObject(parameters.Key,parameters.Fields,parameters.Filters,parameters.Tables);
 			if (obj==null) ExitWith404("object");
-			$this->startOutput($callback);
-			echo json_encode(obj);
-			$this->endOutput($callback);
+			StartOutput(parameters.Callback);
+			_context.Response.Write ((new JavaScriptSerializer ()).Serialize ((object)obj));
+			EndOutput(parameters.Callback);
 		}
 
 		protected void CreateCommand(Parameters parameters)
@@ -721,7 +761,7 @@ namespace DataApiDotNet_Complex
 				config.Database = ParseRequestParameter(ref request, "a-zA-Z0-9\\-_");
 			}
 			if (config.Db == null) {
-				config.Db = (DatabaseInterface)Activator.CreateInstance (Type.GetType ("DataApiDotNet_Complex."+config.DbEngine));
+				config.Db = (DatabaseInterface)Activator.CreateInstance (Type.GetType ("DataApiDotNet_Complex."+config.DbEngine),context);
 				if (config.Charset == null) {
 					config.Charset = config.Db.GetDefaultCharset();
 				}
