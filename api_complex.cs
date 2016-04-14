@@ -72,10 +72,10 @@ namespace DataApiDotNet_Complex
 		//function insertId($result);
 		//function affectedRows($result);
 		bool Close(IDataReader reader);
-		List<Field> FetchFields(IDataReader reader);
+		List<Field> FetchFields(string table);
 		//function addLimitToSql($sql,$limit,$offset);
 		string LikeEscape(string s);
-		//function isBinaryType($field);
+		bool IsBinaryType(Field field);
 		//function base64Encode($string);
 		string GetDefaultCharset();
 	}
@@ -221,9 +221,10 @@ namespace DataApiDotNet_Complex
 			return true;
 		}
 
-		public List<Field> FetchFields(IDataReader reader)
+		public List<Field> FetchFields(string table)
 		{
 			List<Field> fields = new List<Field>();
+			IDataReader reader = this.Query("SELECT * FROM \"!\" WHERE 1=2;", new string[]{ table });
 			DataTable schema = reader.GetSchemaTable();
 			foreach (DataRow row in schema.Rows)
 			{
@@ -232,12 +233,17 @@ namespace DataApiDotNet_Complex
 				field.Type = row ["DataType"].ToString();
 				fields.Add(field);
 			}
+			this.Close (reader);
 			return fields;
 		}
 
 		public string LikeEscape(string s)
 		{
 			return s.Replace("%",@"\%").Replace("_",@"\_");
+		}
+
+		public bool IsBinaryType(Field field) {
+			return (field.Type=="System.Byte[]");
 		}
 
 		public string GetDefaultCharset()
@@ -399,12 +405,12 @@ namespace DataApiDotNet_Complex
 		protected void StartOutput(string callback) {
 			if (callback!=null) {
 				if (_context != null) {
-					_context.Response.AddHeader("Content-Type","application/javascript");
+					_context.Response.AddHeader("Content-Type","application/javascript; charset=utf-8");
 				}
 				_context.Response.Write(callback+"(");
 			} else {
 				if (_context != null) {
-					_context.Response.AddHeader("Content-Type","application/json");
+					_context.Response.AddHeader("Content-Type","application/json; charset=utf-8");
 				}
 			}
 		}
@@ -517,13 +523,19 @@ namespace DataApiDotNet_Complex
 			if (reader.Read()) {
 				obj = _db.FetchAssoc(reader);
 				foreach (Field field in fields[table].Values) {
-					//if (_db.IsBinaryType(field) && obj.ContainsKey(field.Name)) {
-					//	obj[field.Name] = _db.Base64Encode(obj[field.Name]);
-					//}
+					if (_db.IsBinaryType(field) && obj.ContainsKey(field.Name)) {
+						if (obj[field.Name]!=DBNull.Value) {
+							obj[field.Name] = Convert.ToBase64String ((byte[])obj[field.Name]);
+						}
+					}
 				}
 				_db.Close(reader);
 			}
 			return obj;
+		}
+
+		protected int CreateObject(Dictionary<string,object> input,List<string> tables) {
+			// implement
 		}
 
 		protected void FindRelations(ref List<string> tables,ref Dictionary<string,Dictionary<string,List<string>>> collect,ref Dictionary<string,Dictionary<string,List<string>>> select,string database) {
@@ -574,17 +586,30 @@ namespace DataApiDotNet_Complex
 			for (int i=0;i<tables.Count;i++) {
 				string table = tables[i];
 				fields[table] = FindTableFields(table,database);
-				if (i==0) fields[table] = FilterFieldsByColumns(fields[table],columns);
+				fields[table] = FilterFieldsByColumns(fields[table],columns,i==0,table);
 			}
 			return fields;
 		}
 
-		protected Dictionary<string,Field> FilterFieldsByColumns(Dictionary<string,Field> fields,string columns) {
+		protected Dictionary<string,Field> FilterFieldsByColumns(Dictionary<string,Field> fields,string columns,bool first,string table) {
 			Dictionary<string,Field> result = new Dictionary<string,Field>(fields);
 			if (columns!=null) {
 				List<string> cols = new List<string>(columns.Split(new char[]{','}));
 				foreach (KeyValuePair<string,Field> kv in fields) {
-					if (!cols.Contains(kv.Key)) {
+					bool delete = true;
+					for (int i=0;i<cols.Count;i++) {
+						string column = cols[i];
+						if (column.Contains(".")) {
+							if (column==table+'.'+kv.Key || column==table+".*") {
+								delete = false;
+							}
+						} else if (first) {
+							if (column==kv.Key || column=="*") {
+								delete = false;
+							}
+						}
+					}
+					if (delete) {
 						result.Remove(kv.Key);
 					}
 				}
@@ -594,12 +619,10 @@ namespace DataApiDotNet_Complex
 
 		protected Dictionary<string,Field> FindTableFields(string table,string database) {
 			Dictionary<string,Field> fields = new Dictionary<string,Field>();
-			IDataReader reader = _db.Query("SELECT * FROM \"!\" WHERE 1=2;", new string[]{ table });
-			foreach (Field field in _db.FetchFields(reader))
+			foreach (Field field in _db.FetchFields(table))
 			{
 				fields [field.Name] = field;
 			}
-			_db.Close (reader);
 			return fields;
 		}
 
