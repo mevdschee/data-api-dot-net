@@ -69,7 +69,7 @@ namespace DataApiDotNet_Complex
 		IDataReader Query(string sql,object[] parameters);
 		Dictionary<string,object> FetchAssoc(IDataReader reader);
 		//function fetchRow($result);
-		//function insertId($result);
+		long InsertId(IDataReader reader);
 		//function affectedRows($result);
 		bool Close(IDataReader reader);
 		List<Field> FetchFields(string table);
@@ -201,6 +201,9 @@ namespace DataApiDotNet_Complex
 			for (i = 0; i < parameterList.Count; i++) {
 				command.Parameters.AddWithValue ("@_" + i, parameterList [i]);
 			}
+			if (sql.ToUpper().StartsWith("INSERT")) {
+				sql += ";SELECT LAST_INSERT_ID()";
+			}
 			//DEBUG
 			//_context.Response.Write (sql + "\n");
 			return command.ExecuteReader ();
@@ -213,6 +216,12 @@ namespace DataApiDotNet_Complex
 				obj.Add(reader.GetName(i), reader.GetValue(i));
 			}
 			return obj;
+		}
+
+		public long InsertId(IDataReader reader) {
+			reader.NextResult ();
+			reader.Read();
+			return reader.GetInt64(0);
 		}
 
 		public bool Close(IDataReader reader)
@@ -312,7 +321,7 @@ namespace DataApiDotNet_Complex
 			public Dictionary<string,Dictionary<string,Field>> Fields;
 			public string[] Order;
 			public string Transform;
-			public string Input;
+			public Dictionary<string,object> Input;
 			public Dictionary<string,Dictionary<string,List<string>>> Collect;
 			public Dictionary<string,Dictionary<string,List<string>>> Select;
 
@@ -534,8 +543,24 @@ namespace DataApiDotNet_Complex
 			return obj;
 		}
 
-		protected int CreateObject(Dictionary<string,object> input,List<string> tables) {
-			// implement
+		protected object CreateObject(Dictionary<string,object> input,List<string> tables) {
+			if (input==null || input.Keys.Count==0) return null;
+			string keys = "\"!\"";
+			string values = "\"?\"";
+			for (int i = 1; i < input.Keys.Count; i++) {
+				keys += ",\"!\"";
+				values += ",\"?\"";
+			}
+			List<object> parameters = new List<object>{tables[0]};
+			foreach (string key in input.Keys) {
+				parameters.Add (key);
+			}
+			foreach (object value in input.Values) {
+				parameters.Add (value);
+			}
+			IDataReader reader = _db.Query("INSERT INTO \"!\" (\""+keys+"\") VALUES ("+values+")",parameters.ToArray());
+			if (reader==null) return null;
+			return _db.InsertId(reader);
 		}
 
 		protected void FindRelations(ref List<string> tables,ref Dictionary<string,Dictionary<string,List<string>>> collect,ref Dictionary<string,Dictionary<string,List<string>>> select,string database) {
@@ -579,6 +604,20 @@ namespace DataApiDotNet_Complex
 			}
 			tableset.Add(tables[0]);
 			tables = tableset;
+		}
+
+		protected string AddRelationColumns(string columns,Dictionary<string,Dictionary<string,List<string>>> select) {
+			if (columns!=null && columns.Length>0) {
+				foreach (KeyValuePair<string,Dictionary<string,List<string>>> kv1 in select) {
+					string table = kv1.Key;
+					foreach (KeyValuePair<string,List<string>> kv2 in select[table]) {
+						string key = kv2.Key;
+						string other = string.Join(".",kv2.Value);
+						columns+=','+table+'.'+key+','+other;
+					}
+				}
+			}
+			return columns;
 		}
 
 		protected Dictionary<string,Dictionary<string,Field>> FindFields(List<string> tables,string columns,string database) {
@@ -638,7 +677,7 @@ namespace DataApiDotNet_Complex
 			string page          = ParseGetParameter(settings.Get, "page", "0-9,");
 			string[] filters     = ParseGetParameterArray(settings.Get, "filter", null);
 			string satisfy       = ParseGetParameter(settings.Get, "satisfy", "a-z");
-			string columns       = ParseGetParameter(settings.Get, "columns", "a-zA-Z0-9\\-_,");
+			string columns       = ParseGetParameter(settings.Get, "columns", "a-zA-Z0-9\\-_,.*");
 			string order         = ParseGetParameter(settings.Get, "order", "a-zA-Z0-9\\-_,");
 			parameters.Transform = ParseGetParameter(settings.Get, "transform", "t1");
 			parameters.Database  = settings.Database;
@@ -651,6 +690,7 @@ namespace DataApiDotNet_Complex
 
 			// reflection
 			FindRelations(ref parameters.Tables,ref parameters.Collect,ref parameters.Select,parameters.Database);
+			columns = AddRelationColumns(columns,parameters.Select);
 			parameters.Fields = FindFields(parameters.Tables,columns,parameters.Database);
 
 			/*
@@ -721,7 +761,10 @@ namespace DataApiDotNet_Complex
 
 		protected void CreateCommand(Parameters parameters)
 		{
-
+			if (parameters.Input==null) ExitWith404("input");
+			StartOutput(parameters.Callback);
+			_context.Response.Write ((new JavaScriptSerializer ()).Serialize (CreateObject (parameters.Input, parameters.Tables)));
+			EndOutput(parameters.Callback);
 		}
 
 		protected void UpdateCommand(Parameters parameters)
@@ -744,6 +787,7 @@ namespace DataApiDotNet_Complex
 			Dictionary<string,string> headers = new Dictionary<string,string>() {
 				{ "Access-Control-Allow-Headers", "Content-Type" },
 				{ "Access-Control-Allow-Methods", "OPTIONS, GET, PUT, POST, DELETE" },
+				{ "Access-Control-Allow-Credentials", "true" },
 				{ "Access-Control-Max-Age", "1728000" }
 			};
 			if (_context != null) {
