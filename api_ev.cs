@@ -1,12 +1,12 @@
 ﻿using System;
 using System.IO;
-using System.Data;
+using MySql.Data;
 using System.Net;
 using System.Text;
 using System.Threading;
 using System.Collections.Generic;
 using System.Web;
-using System.Data.SqlClient;
+using MySql.Data.MySqlClient;
 using System.Text.RegularExpressions;
 using System.Linq;
 using System.Web.Script.Serialization;
@@ -43,7 +43,7 @@ class WebServer {
 				Dictionary<string,object> input = json.Deserialize<Dictionary<string,object>>(data); 
 
 				// connect to the sql server database
-				SqlConnection link = new SqlConnection("addr=localhost;uid=user;pwd=pass;database=dbname");
+				MySqlConnection link = new MySqlConnection("addr=localhost;uid=user;pwd=pass;database=dbname");
 				link.Open();
 
 				// retrieve the table and key from the path
@@ -60,23 +60,23 @@ class WebServer {
 				string sql = null;
 				switch (method) {
 				case "GET":
-					sql = string.Format ("select * from [{0}]" + (key > 0 ? " where [id]=@pk" : ""), table); break;
+					sql = string.Format ("select * from `{0}`" + (key > 0 ? " where `id`=@pk" : ""), table); break;
 				case "PUT":
-					sql = string.Format ("update [{0}] set {1} where [id]=@pk",table,set); break;
+					sql = string.Format ("update `{0}` set {1} where `id`=@pk",table,set); break;
 				case "POST":
-					sql = string.Format ("insert into [{0}] set {1}; select scope_identity()",table,set); break;
+					sql = string.Format ("insert into `{0}` set {1}; select last_insert_id()",table,set); break;
 				case "DELETE":
-					sql = string.Format ("delete [{0}] where [id]=@pk",table); break;
+					sql = string.Format ("delete `{0}` where `id`=@pk",table); break;
 				}
 
 				// add parameters to command
-				SqlCommand command = new SqlCommand(sql, link);
+				MySqlCommand command = new MySqlCommand(sql, link);
 				if (input!=null) foreach (string c in columns) command.Parameters.AddWithValue ("@_"+c, input[c]);
 				if (key>0) command.Parameters.AddWithValue ("@pk", key);
 
 				// print results, insert id or affected row count
 				if (method == "GET") {
-					SqlDataReader reader = command.ExecuteReader ();
+					MySqlDataReader reader = command.ExecuteReader ();
 					var fields = new List<string> ();
 					for (int i = 0; i < reader.FieldCount; i++) fields.Add (reader.GetName(i));
 					if (key == 0) msg += "[";
@@ -91,7 +91,7 @@ class WebServer {
 					if (key == 0) msg += "]";
 					reader.Close ();
 				} else if (method == "POST") {
-					SqlDataReader reader = command.ExecuteReader ();
+					MySqlDataReader reader = command.ExecuteReader ();
 					reader.NextResult ();
 					reader.Read ();
 					msg += json.Serialize ((object)reader.GetValue (0));
