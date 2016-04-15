@@ -60,13 +60,13 @@ class WebServer {
 				string sql = null;
 				switch (method) {
 				case "GET":
-					sql = string.Format ("select * from `{0}`" + (key > 0 ? " where `id`=@pk" : ""), table); break;
+					sql = string.Format ("select * from [{0}]" + (key > 0 ? " where [id]=@pk" : ""), table); break;
 				case "PUT":
-					sql = string.Format ("update `{0}` set {1} where `id`=@pk",table,set); break;
+					sql = string.Format ("update [{0}] set {1} where [id]=@pk",table,set); break;
 				case "POST":
-					sql = string.Format ("insert into `{0}` set {1}; select last_insert_id()",table,set); break;
+					sql = string.Format ("insert into [{0}] set {1}; select scope_identity()",table,set); break;
 				case "DELETE":
-					sql = string.Format ("delete `{0}` where `id`=@pk",table); break;
+					sql = string.Format ("delete [{0}] where [id]=@pk",table); break;
 				}
 
 				// add parameters to command
