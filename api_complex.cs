@@ -755,7 +755,7 @@ namespace DataApiDotNet_Complex
 			Dictionary<string,object> obj = RetrieveObject(parameters.Key,parameters.Fields,parameters.Filters,parameters.Tables);
 			if (obj==null) ExitWith404("object");
 			StartOutput(parameters.Callback);
-			_context.Response.Write ((new JavaScriptSerializer ()).Serialize ((object)obj));
+			_context.Response.Write ((new JavaScriptSerializer()).Serialize((object)obj));
 			EndOutput(parameters.Callback);
 		}
 
@@ -763,18 +763,23 @@ namespace DataApiDotNet_Complex
 		{
 			if (parameters.Input==null) ExitWith404("input");
 			StartOutput(parameters.Callback);
-			_context.Response.Write ((new JavaScriptSerializer ()).Serialize (CreateObject (parameters.Input, parameters.Tables)));
+			_context.Response.Write ((new JavaScriptSerializer()).Serialize(CreateObject(parameters.Input,parameters.Tables)));
 			EndOutput(parameters.Callback);
 		}
 
 		protected void UpdateCommand(Parameters parameters)
 		{
-
+			if (parameters.Input==null) ExitWith404("subject");
+			StartOutput(parameters.Callback);
+			//_context.Response.Write ((new JavaScriptSerializer()).Serialize(UpdateObject(parameters.Key,parameters.Input,parameters.Filters,parameters.Tables)));
+			EndOutput(parameters.Callback);
 		}
 
 		protected void DeleteCommand(Parameters parameters)
 		{
-
+			StartOutput(parameters.Callback);
+			//_context.Response.Write ((new JavaScriptSerializer()).Serialize(DeleteObject(parameters.Key,parameters.Filters,parameters.Tables)));
+			EndOutput(parameters.Callback);
 		}
 
 		protected void ListCommand(Parameters parameters)
