@@ -40,7 +40,7 @@ class WebServer {
 				string method = req.Method;
 				string[] request = req.Uri.Trim('/').Split('/');
 				string data = Encoding.UTF8.GetString (req.RequestBody);
-				Dictionary<string,object> input = json.Deserialize<Dictionary<string,object>>(data); 
+				Dictionary<string,object> input = json.Deserialize<Dictionary<string,object>>(data);
 
 				// connect to the sql server database
 				MySqlConnection link = new MySqlConnection("addr=localhost;uid=user;pwd=pass;database=dbname");
@@ -54,7 +54,7 @@ class WebServer {
 				string[] columns = input!=null ? input.Keys.Select(i => Regex.Replace(i.ToString(), "[^a-z0-9_]+", "")).ToArray() : null;
 
 				// build the SET part of the SQL command
-				string set = input != null ? String.Join (", ", columns.Select (i => "[" + i + "]=@_" + i).ToArray ()) : "";
+				string set = input != null ? String.Join (", ", columns.Select (i => "`" + i + "`=@_" + i).ToArray ()) : "";
 
 				// create SQL based on HTTP method
 				string sql = null;
