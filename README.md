@@ -2,6 +2,10 @@
 
 Single file REST API that runs on Mono/XSP2 (and on IIS with ASP.net 4.5)
 
+NB: WORK IN PROGRESS - NOT FINISHED YET!
+
+## How to start
+
 ```single.ashx``` combines ```api.ashx``` and ```api.cs``` to be a single file.
 
 Suggested IDE: MonoDevelop (or Visual Studio)
