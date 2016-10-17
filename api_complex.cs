@@ -818,6 +818,9 @@ namespace DataApiDotNet_Complex
 			}
 			if (config.Request == null) {
 				config.Request = context.Request.PathInfo;
+				if (config.Request == "") {
+					config.Request = context.Request.Path;
+				}
 			}
 			if (config.Get == null) {
 				config.Get = context.Request.QueryString;
@@ -879,8 +882,8 @@ namespace DataApiDotNet_Complex
 		{
 			PHP_CRUD_API api = new PHP_CRUD_API (context,new Config{
 				Hostname = "localhost",
-				Username = "root",
-				Password = "",
+				Username = "php-crud-api",
+				Password = "php-crud-api",
 				Database = "php-crud-api"
 				//Database = null
 			});
@@ -893,4 +896,5 @@ namespace DataApiDotNet_Complex
 			}
 		}
 	}
+
 }

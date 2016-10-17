@@ -11,3 +11,11 @@ NB: WORK IN PROGRESS - NOT FINISHED YET!
 Suggested IDE: MonoDevelop (or Visual Studio)
 
 ```api_complex.cs``` is the start of a port of the full [php-crud-api](https://github.com/mevdschee/php-crud-api) project.
+
+
+Download mysql-connector-net-6.9.9-noinstall.zip
+
+sudo gacutil -i mysql/v4.0/MySql.Data.dll
+
+sudo apt-get install mono-complete monodevelop
+
